@@ -167,7 +167,7 @@ const SUPABASE_URL='https://rxqlkfzsvoqydqqzffih.supabase.co';
 const SUPABASE_KEY='sb_publishable__IZIszN0QheZChaDwqVA8A_vlQnP9tw';
 const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
 
-const PAPEIS={admin:'Administrador',estoque:'Estoque',socio:'Sócio (só visualização)',cliente:'Cliente (vê só os envios dele)'};
+const PAPEIS={admin:'Administrador',estoque:'Estoque',socio:'Sócio (só visualização)',cliente:'Cliente (vê só os envios dele)',e04:'Só Estoque 04'};
 const MODS={flex:'Flex',full:'Full',agencia:'Agência'};
 let sessao=null,perfil=null,aba=null,busca='',filtroEst='com',filtroSai={conta:'',mod:'',status:'ativa'},D={produtos:[],contas:[],entradas:[],saidas:[],perfis:[],ajustes:[],notas:[],cp:[],pf:[]},modoLogin='entrar',carregando=false,limite=150;
 
@@ -290,6 +290,7 @@ async function carregarPerfil(){
   if(error){$('app').innerHTML=`<div class="login">${LOGO}<h1>Tudo Mix Estoque</h1><p class="erro">Não foi possível carregar seu acesso. Recarregue a página.</p></div>`;return;}
   perfil=data;if(!perfil||!perfil.papel)return telaPendente();
   if(perfil.papel==='cliente'){if(!window._logou){window._logou=1;log('entrou','Entrou no sistema (cliente)');}return carregarCliente();}
+  if(perfil.papel==='e04')aba='e04';
   if(!aba)aba='estoque';
   if(!window._logou){window._logou=1;log('entrou','Entrou no sistema');}
   await carregar();
@@ -299,6 +300,12 @@ async function carregarPerfil(){
 async function carregar(){
   if(perfil&&perfil.papel==='cliente')return carregarCliente();
   if(carregando)return;carregando=true;
+  if(perfil&&perfil.papel==='e04'){ // conta só do Estoque 04: não carrega nada do resto do sistema
+    try{const [c,pe]=await Promise.all([sb.rpc('e04_catalogo'),sb.rpc('e04_pessoas')]);if(c.error)throw c.error;
+      D.produtos=(c.data||[]).map(p=>({...p,estoque:null}));D.perfis=pe.data||[];D.contas=[];D.entradas=[];D.saidas=[];D.ajustes=[];D.notas=[];D.cp=[];D.pf=[];
+      await carregarE04();}catch(e){console.error(e);toast('Não foi possível atualizar os dados.');}
+    carregando=false;render();return;
+  }
   try{
     const vc=verCusto();
     const [prods,contas,ents,sais,perfis,ajs,nts,cps,pfs]=await Promise.all([
@@ -322,6 +329,7 @@ setInterval(()=>{if(perfil&&document.visibilityState==='visible')sb.rpc('pulso')
 
 // ---------- tela principal ----------
 function abasDoPapel(){
+  if(perfil.papel==='e04')return E04.pode?[['e04','🔒 Estoque 04']]:[['e04','Estoque 04']];
   const a=[['estoque','Estoque'],['notas','Notas'],['entradas','Entradas'],['saidas','Saídas']];if(verCusto())a.push(['pagar','Contas a pagar']);a.push(['relatorio','Resumo por conta']);
   if(E04.pode)a.splice(1,0,['e04','🔒 Estoque 04']);
   if(ehAdmin()){a.push(['contas','Contas']);a.push(['usuarios','Usuários']);a.push(['acessos','Acessos']);}
@@ -444,7 +452,7 @@ function acharCodigo(t){t=String(t||'').trim();if(!t)return null;const l=t.toLow
 function sugestoes(t,soComEstoque){const q=norm(t.trim());if(q.length<2)return [];const ws=q.split(/\s+/);
   return D.produtos.filter(p=>(!soComEstoque||p.estoque>0)&&ws.every(w=>norm(p.nome+' '+(p.sku||'')+' '+(p.ean||'')+' '+(p.marca||'')).includes(w))).slice(0,12);}
 function ligarBusca(inp,box,soComEstoque,escolher){
-  const mostrar=()=>{const l=sugestoes(inp.value,soComEstoque);box.innerHTML=l.map(p=>`<div class="sug" data-pid="${p.id}">${foto(p,1)}<div><div>${esc(p.nome)}</div><div class="meta">${esc(p.sku||'')}${p.ean?' · '+esc(p.ean):''} · ${un(p.estoque)} un.</div></div></div>`).join('');box.classList.toggle('hidden',!l.length);};
+  const mostrar=()=>{const l=sugestoes(inp.value,soComEstoque);box.innerHTML=l.map(p=>`<div class="sug" data-pid="${p.id}">${foto(p,1)}<div><div>${esc(p.nome)}</div><div class="meta">${esc(p.sku||'')}${p.ean?' · '+esc(p.ean):''}${p.estoque!=null?' · '+un(p.estoque)+' un.':''}</div></div></div>`).join('');box.classList.toggle('hidden',!l.length);};
   inp.addEventListener('input',mostrar);
   inp.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();const p=acharCodigo(inp.value)||(sugestoes(inp.value,soComEstoque).length===1?sugestoes(inp.value,soComEstoque)[0]:null);if(p){box.classList.add('hidden');escolher(p);}}});
   box.addEventListener('mousedown',e=>{const s=e.target.closest('[data-pid]');if(!s)return;e.preventDefault();box.classList.add('hidden');escolher(produto(+s.dataset.pid));});
@@ -1118,6 +1126,7 @@ function e04MovTexto(m){const its=e04ItensDe(m.id);
 
 // ---------- página ----------
 function abaE04(){
+  if(!E04.pode)return '<div class="vazio">Seu acesso ao Estoque 04 ainda não foi liberado. Fale com o Iago.</div>';
   const pend=E04.sols.filter(s=>s.status==='pendente').length;
   const subs=[['saldo','Saldo'],['historico','Histórico'],['alteracoes',(E04.dono?'Alterações pendentes':'Minhas solicitações')+(pend?` (${pend})`:'')]];if(E04.dono)subs.push(['acesso','Acesso']);
   const est=E04.acesso?(D.perfis.find(p=>p.user_id===E04.acesso)||{}):null;
