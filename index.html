@@ -237,7 +237,7 @@ async function tudo(q){const out=[];for(let i=0;;i+=1000){const {data,error}=awa
 
 // fotos
 async function reduzirImagem(file,max=1200){
-  if(!/^image\//.test(file.type))throw new Error('Escolha um arquivo de imagem (foto).');
+  if(!/^image\//.test(file.type)&&!/\.(jpe?g|png|webp|heic|heif|gif|bmp)$/i.test(file.name||''))throw new Error('Escolha um arquivo de imagem (foto).');
   const url=URL.createObjectURL(file);
   try{const img=await new Promise((ok,er)=>{const i=new Image();i.onload=()=>ok(i);i.onerror=()=>er(new Error('Não foi possível abrir esta imagem.'));i.src=url;});
     const k=Math.min(1,max/Math.max(img.naturalWidth,img.naturalHeight));const w=Math.round(img.naturalWidth*k),h=Math.round(img.naturalHeight*k);
@@ -1545,7 +1545,7 @@ async function carregarE19(){
   if(fin){const [c,i,d,k]=await Promise.all([tudo(()=>sb.from('e19_compras').select('*').order('id',{ascending:false})),tudo(()=>sb.from('e19_compra_itens').select('*').order('id')),
       tudo(()=>sb.from('e19_compra_despesas').select('*').order('id')),tudo(()=>sb.from('e19_correcoes').select('*').order('id',{ascending:false}))]);n.fc=c;n.fi=i;n.fd=d;n.cor=k;}
   if(!souE19&&E04.dono){const {data:cv}=await sb.from('e19_convites').select('*').order('nome');n.convites=cv||[];}
-  const cam=[...new Set(n.sols.flatMap(s=>(s.itens||[]).map(i=>i.foto)).filter(c=>c&&!n.urls[c]))];
+  const cam=[...new Set(n.sols.flatMap(s=>(s.itens||[]).flatMap(i=>e19Fotos(i))).filter(c=>c&&!n.urls[c]))];
   for(let k=0;k<cam.length;k+=100){const {data:u}=await sb.storage.from('e19').createSignedUrls(cam.slice(k,k+100),6*3600);(u||[]).forEach(x=>{if(x.signedUrl)n.urls[x.path]=x.signedUrl;});}
   E19=n;
 }
@@ -1574,10 +1574,10 @@ function e19ListaSolic(admin){
   return `<div class="barra" style="align-items:center"><input id="e19_q" type="search" placeholder="Buscar produto ou nº da solicitação…" value="${esc(e19F.q)}">
     <div class="seg">${[['abertas','Em andamento'],['concluida','Concluídas'],['todas','Todas']].map(([k,l])=>`<button class="${e19F.st===k?'on':''}" data-e19st="${k}">${l}</button>`).join('')}</div></div>
   <div class="lista">${lst.length?lst.map(s=>`<div class="card" style="flex-direction:column;align-items:stretch">
-    <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap"><div><div class="t">Solicitação ${esc(s.numero)} ${e19Badge(s.status)}</div>
+    <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap"><div><div class="t">Solicitação ${esc(s.numero)} ${s.urgente?'<span class="badge b-venc">🔴 Urgente</span> ':''}${e19Badge(s.status)}</div>
       <div class="meta">${fts(s.criado_em)} · por <b>${esc(e19Pessoa(s.criado_por))}</b> · ${s.itens.length} produto(s)${s.obs?' · '+esc(s.obs):''}</div></div></div>
     <div class="scroll" style="margin-top:8px"><table class="planilha"><tr><th>Foto</th><th>Produto</th><th class="n">Solicitada</th><th class="n">Comprada</th><th class="n">Falta comprar</th><th>Status</th>${admin?'<th class="n">Custo comprado</th>':''}</tr>
-    ${s.itens.map(i=>`<tr><td>${e19Foto(i.foto)}</td><td style="white-space:normal"><b>${esc(i.nome)}</b>${i.produto_id?'':' <span class="tag-lanc">novo</span>'}${i.obs?`<div class="meta" style="margin:0">${esc(i.obs)}</div>`:''}</td>
+    ${s.itens.map(i=>`<tr><td>${e19Tira(i,40)}</td><td style="white-space:normal"><b>${esc(i.nome)}</b>${i.produto_id?'':' <span class="tag-lanc">novo</span>'}${i.obs?`<div class="meta" style="margin:0">${esc(i.obs)}</div>`:''}</td>
       <td class="n">${e19Qtd(i.qtd,i.unidade)}</td><td class="n">${e19Qtd(i.qtd_comprada,i.unidade)}</td><td class="n"><b>${e19Qtd(i.falta,i.unidade)}</b></td><td>${e19Badge(i.status)}</td>${admin?`<td class="n">${brl(custoItem(i.id))}</td>`:''}</tr>`).join('')}</table></div></div>`).join('')
     :'<div class="vazio">Nenhuma solicitação aqui.</div>'}</div>`;
 }
@@ -1587,66 +1587,131 @@ function e19PagSolic(){
 }
 
 // ---------- nova solicitação ----------
+// Qualquer produto pode ser pedido: o nome é livre. O cadastro só aparece como sugestão opcional ("vincular"),
+// nunca troca o que a pessoa digitou sozinho. Até 6 fotos por produto (câmera ou galeria).
+const E19_MAXF=6;
+function e19Fotos(i){return i&&i.fotos&&i.fotos.length?i.fotos:(i&&i.foto?[i.foto]:[]);}
+function e19Tira(i,tam){const fs=e19Fotos(i);if(!fs.length)return e19Foto(null);const s=tam||40;
+  return `<div style="display:flex;gap:4px;flex-wrap:wrap;max-width:${s*3+8}px">${fs.map(c=>{const u=e19Url(c);return `<div class="foto" style="width:${s}px;height:${s}px;border-radius:8px">${u?`<img src="${esc(u)}" alt="" loading="lazy" data-e19amp="${esc(c)}" style="cursor:zoom-in;width:100%;height:100%;object-fit:cover">`:'📷'}</div>`;}).join('')}</div>`;}
+async function e19PrepararFoto(f){
+  const ehImg=/^image\//.test(f.type||'')||/\.(jpe?g|png|webp|heic|heif|gif|bmp)$/i.test(f.name||'');
+  if(!ehImg)throw new Error('Escolha uma foto (imagem).');
+  try{const b=await reduzirImagem(new File([f],f.name||'foto.jpg',{type:f.type||'image/jpeg'}),1600);if(b&&b.size)return {blob:b,ext:'jpg',tipo:'image/jpeg'};}catch(e){}
+  if(f.size>12*1024*1024)throw new Error('Foto muito grande (máx. 12 MB).');
+  const ext=((f.name||'').match(/\.([a-z0-9]+)$/i)||[,'jpg'])[1].toLowerCase();
+  return {blob:f,ext,tipo:f.type||'image/'+(ext==='jpg'?'jpeg':ext)};
+}
 function e19NovaSolic(){
   const K='e19_rasc_sol_'+(sessao&&sessao.user.id);
-  const R=e04Ler(K,null)||{idem:crypto.randomUUID(),obs:'',itens:[]};
-  if(!R.itens.length)R.itens.push({pid:null,nome:'',qtd:'',un:'un',foto:'',obs:''});
-  const salvar=()=>e04Gravar(K,R);let enviando=false;
-  const prevs={};
-  async function subirFoto(k,f){
-    try{const blob=await reduzirImagem(f,1400);const c='fotos/'+sessao.user.id+'/'+crypto.randomUUID()+'.jpg';
-      const {error}=await sb.storage.from('e19').upload(c,blob,{contentType:'image/jpeg',upsert:false});if(error)throw error;
-      R.itens[k].foto=c;prevs[c]=URL.createObjectURL(blob);salvar();desenhar();}
-    catch(e){toast(msgErro(e));desenhar();}}
+  const novoItem=()=>({pid:null,nome:'',qtd:'1',un:'un',fotos:[],obs:''});
+  const R=e04Ler(K,null)||{idem:crypto.randomUUID(),obs:'',urg:false,itens:[]};
+  R.itens.forEach(i=>{if(!Array.isArray(i.fotos))i.fotos=i.foto?[i.foto]:[];delete i.foto;if(i.qtd==null)i.qtd='';});
+  if(!R.itens.length)R.itens.push(novoItem());
+  const salvar=()=>e04Gravar(K,R);let enviando=false,tentou=false;
+  const prevs={},subindo={};// subindo[k] = nº de fotos ainda enviando
+  const totSub=()=>Object.values(subindo).reduce((a,b)=>a+b,0);
+  async function subirFotos(k,files){
+    const it=R.itens[k];const livres=E19_MAXF-it.fotos.length;
+    if(livres<=0){toast('Máximo de '+E19_MAXF+' fotos por produto.');return;}
+    const lst=[...files].slice(0,livres);if(files.length>livres)toast('Só cabem mais '+livres+' foto(s) neste produto.');
+    subindo[k]=(subindo[k]||0)+lst.length;desenhar();
+    await Promise.all(lst.map(async f=>{
+      try{const p=await e19PrepararFoto(f);const c='fotos/'+sessao.user.id+'/'+crypto.randomUUID()+'.'+p.ext;
+        const {error}=await sb.storage.from('e19').upload(c,p.blob,{contentType:p.tipo,upsert:false});if(error)throw error;
+        const alvo=R.itens.indexOf(it);if(alvo>=0){it.fotos.push(c);prevs[c]=URL.createObjectURL(p.blob);salvar();}}
+      catch(e){toast('Foto não enviada: '+msgErro(e));}
+      finally{subindo[k]=Math.max(0,(subindo[k]||1)-1);}
+    }));
+    desenhar();
+  }
+  function dica(i,k){
+    const cad=i.pid?produto(i.pid):null;
+    const sug=!i.pid&&String(i.nome).trim().length>=3?sugestoes(i.nome,false).slice(0,3):[];
+    return cad?`<div class="total" style="margin:6px 0 0;display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 10px"><span>✔ Vinculado ao cadastro${cad.sku?' · SKU '+esc(cad.sku):''}</span><button class="link" data-desv="${k}">desvincular</button></div>`          :sug.length?`<div class="meta" style="margin:6px 0 2px">Já existe no cadastro? Toque para vincular (opcional):</div><div style="display:flex;gap:6px;flex-wrap:wrap">${sug.map(p=>`<button class="small" data-vinc="${k}|${p.id}" style="text-align:left;max-width:100%;white-space:normal">${esc(p.nome)}${p.sku?' <span class="meta">· '+esc(p.sku)+'</span>':''}</button>`).join('')}</div>`          :String(i.nome).trim()?'<div class="meta" style="margin:4px 0 0"><span class="tag-lanc" style="margin:0">produto novo</span> será pedido assim mesmo — capriche na descrição e nas fotos.</div>':'';
+  }
+  function cartao(i,k){
+    const erroNome=tentou&&!String(i.nome).trim(),erroQtd=tentou&&!(+i.qtd>0);
+    const nf=i.fotos.length,sb_=subindo[k]||0;
+    return `<div class="card" data-card="${k}" style="flex-direction:column;align-items:stretch;gap:8px;${erroNome||erroQtd?'border-color:var(--red)':''}">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><b>Produto ${k+1}</b>
+        <div style="display:flex;gap:6px">${R.itens.length>1?`<button class="small danger" data-rm="${k}">Remover</button>`:''}</div></div>
+      <div class="campo" style="margin:0"><label>O que precisa comprar? <span class="meta" style="font-weight:400">— qualquer produto, mesmo que não esteja cadastrado</span></label>
+        <input data-k="${k}" data-f="nome" value="${esc(i.nome)}" placeholder="Ex.: Vassoura de piaçava, fita adesiva larga, saco de lixo 100 L…" autocomplete="off" enterkeyhint="next" maxlength="200" style="${erroNome?'border-color:var(--red)':''}">
+        <div id="e19x${k}">${dica(i,k)}</div>
+        ${erroNome?'<div class="meta" style="color:var(--red);margin:4px 0 0">Escreva o nome do produto.</div>':''}</div>
+      <div class="duas" style="margin:0"><div class="campo" style="margin:0"><label>Quantidade</label>
+          <div style="display:flex;gap:6px;align-items:center"><button class="small" data-mais="${k}|-1" style="min-width:40px;font-size:18px">−</button>
+          <input data-k="${k}" data-f="qtd" value="${esc(i.qtd)}" inputmode="numeric" placeholder="0" style="text-align:center;${erroQtd?'border-color:var(--red)':''}">
+          <button class="small" data-mais="${k}|1" style="min-width:40px;font-size:18px">+</button></div></div>
+        <div class="campo" style="margin:0"><label>Unidade</label><select data-k="${k}" data-f="un">${Object.entries(E19_UN).map(([a,b])=>`<option value="${a}" ${i.un===a?'selected':''}>${b}</option>`).join('')}</select></div></div>
+      <div class="campo" style="margin:0"><label>Detalhes (marca, modelo, tamanho, cor, voltagem, onde comprar…)</label>
+        <textarea data-k="${k}" data-f="obs" rows="2" maxlength="1000" placeholder="Quanto mais detalhe, mais certa a compra." style="width:100%;resize:vertical">${esc(i.obs)}</textarea></div>
+      <div><label style="font-size:13px;font-weight:600">Fotos <span class="meta" style="font-weight:400">(${nf}/${E19_MAXF}) — do produto, da embalagem, do código ou de onde ele fica</span></label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">
+          ${i.fotos.map((c,j)=>{const u=prevs[c]||e19Url(c);return `<div style="position:relative"><div class="foto" style="width:84px;height:84px">${u?`<img src="${esc(u)}" alt="" data-ver="${esc(u)}" style="width:100%;height:100%;object-fit:cover;cursor:zoom-in">`:'📷'}</div>
+            <button data-rf="${k}|${j}" title="Remover foto" style="position:absolute;top:-6px;right:-6px;width:24px;height:24px;border-radius:50%;padding:0;font-size:13px;line-height:22px;background:#fff">✕</button></div>`;}).join('')}
+          ${Array.from({length:sb_},()=>'<div class="foto" style="width:84px;height:84px;font-size:13px">⏳ enviando</div>').join('')}
+          ${nf+sb_<E19_MAXF?`<label class="btnf" style="width:84px;height:84px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:12px;text-align:center"><span style="font-size:24px">📷</span>Tirar foto<input type="file" accept="image/*" capture="environment" data-ft="${k}" class="hidden"></label>
+          <label class="btnf" style="width:84px;height:84px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:12px;text-align:center"><span style="font-size:24px">🖼</span>Galeria<input type="file" accept="image/*" multiple data-ft="${k}" class="hidden"></label>`:''}
+        </div></div></div>`;
+  }
   function desenhar(){
-    abrir(`<h2>Nova solicitação de compra</h2><div class="sub">Rascunho salvo automaticamente. Adicione quantos produtos precisar.</div>
-    <div class="lista">${R.itens.map((i,k)=>{const u=prevs[i.foto]||e19Url(i.foto);return `<div class="card" style="flex-direction:column;align-items:stretch;gap:6px">
-      <div style="display:flex;justify-content:space-between;align-items:center"><b>Produto ${k+1}</b>${R.itens.length>1?`<button class="small danger" data-rm="${k}">Remover</button>`:''}</div>
-      <div style="display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap">
-       <div style="flex:1;min-width:220px">
-        <div class="campo"><label>Produto — escolha da lista ou digite o nome de um produto novo</label><input data-k="${k}" data-f="nome" value="${esc(i.nome)}" placeholder="Nome ou SKU" autocomplete="off"><div id="e19s${k}" class="sugs hidden"></div>
-         <div class="meta" style="margin:2px 0 0">${i.pid?'✔ Produto cadastrado':i.nome?'Produto novo (não cadastrado)':''}</div></div>
-        <div class="duas"><div class="campo"><label>Quantidade</label><input data-k="${k}" data-f="qtd" value="${esc(i.qtd)}" inputmode="numeric" placeholder="ex.: 5"></div>
-         <div class="campo"><label>Unidade de medida</label><select data-k="${k}" data-f="un">${Object.entries(E19_UN).map(([a,b])=>`<option value="${a}" ${i.un===a?'selected':''}>${b}</option>`).join('')}</select></div></div>
-        <div class="campo"><label>Observações (marca, modelo, tamanho, cor, referência…)</label><input data-k="${k}" data-f="obs" value="${esc(i.obs)}"></div></div>
-       <div style="width:150px;text-align:center"><div class="foto" style="width:140px;height:140px;margin:0 auto 6px">${u?`<img src="${esc(u)}" alt="">`:'📷'}</div>
-        <label class="small btnf" style="display:block;margin-bottom:4px">📷 Tirar foto<input type="file" accept="image/*" capture="environment" data-ft="${k}" class="hidden"></label>
-        <label class="small btnf" style="display:block">🖼 Galeria<input type="file" accept="image/*" data-ft="${k}" class="hidden"></label>
-        ${i.foto?`<button class="link" data-rf="${k}">remover foto</button>`:''}</div></div></div>`;}).join('')}</div>
-    <button data-add="1" style="margin-top:8px">+ Adicionar produto</button>
-    <div class="campo" style="margin-top:10px"><label>Observação geral (opcional)</label><input id="s19_obs" value="${esc(R.obs)}"></div>
-    <div class="erro"></div><div class="rodape"><button id="cx">Fechar (mantém rascunho)</button><button class="danger" id="limpa">Descartar</button><button class="primary" id="ok">Enviar solicitação</button></div>`,true);
+    const M0=$('modal');const foco=M0&&document.activeElement&&M0.contains(document.activeElement)&&document.activeElement.dataset?{k:document.activeElement.dataset.k,f:document.activeElement.dataset.f,p:document.activeElement.selectionStart}:null;
+    const nF=R.itens.reduce((a,i)=>a+i.fotos.length,0),ns=totSub();
+    abrir(`<h2>Nova solicitação de compra</h2><div class="sub">Peça qualquer produto — cadastrado ou não. O rascunho fica salvo sozinho, pode fechar e voltar depois.</div>
+    <label class="card" style="cursor:pointer;align-items:center;gap:10px;margin-bottom:10px;${R.urg?'border-color:var(--red);background:#fef2f2':''}"><input type="checkbox" id="s19_urg" ${R.urg?'checked':''} style="width:22px;height:22px;flex:none"><div><b>🔴 Urgente</b><div class="meta" style="margin:0">Marque só se faltar para hoje/amanhã. Aparece em destaque para o Estoque 04.</div></div></label>
+    <div class="lista">${R.itens.map(cartao).join('')}</div>
+    <button data-add="1" style="margin-top:10px;width:100%;padding:12px">+ Adicionar outro produto</button>
+    <div class="campo" style="margin-top:12px"><label>Observação geral (opcional)</label><input id="s19_obs" value="${esc(R.obs)}" maxlength="500" placeholder="Ex.: entregar na loja, prazo, fornecedor preferido…"></div>
+    <div class="total">${R.itens.length} produto(s) · ${nF} foto(s)${ns?` · <b>enviando ${ns} foto(s)…</b>`:''}</div>
+    <div class="erro"></div><div class="rodape"><button id="cx">Fechar (mantém rascunho)</button><button class="danger" id="limpa">Descartar</button><button class="primary" id="ok" ${ns?'disabled':''}>${ns?'Aguarde as fotos…':'Enviar solicitação'}</button></div>`,true);
     const M=$('modal');
     M.querySelectorAll('[data-f]').forEach(inp=>{const k=+inp.dataset.k,f=inp.dataset.f;
       inp.addEventListener(inp.tagName==='SELECT'?'change':'input',()=>{const it=R.itens[k];
-        if(f==='nome'){it.nome=inp.value;if(it.pid&&produto(it.pid).nome!==inp.value)it.pid=null;}else if(f==='qtd')it.qtd=inp.value.replace(/\D/g,'');else it[f]=inp.value;salvar();});
-      if(f==='nome')ligarBusca(inp,$('e19s'+k),false,p=>{R.itens[k].pid=p.id;R.itens[k].nome=p.nome;salvar();desenhar();});});
-    M.querySelectorAll('[data-ft]').forEach(inp=>inp.onchange=()=>{const f=inp.files[0];if(f){inp.closest('div').querySelector('.foto').innerHTML='⏳';subirFoto(+inp.dataset.ft,f);}});
-    M.querySelectorAll('[data-rf]').forEach(b=>b.onclick=()=>{R.itens[+b.dataset.rf].foto='';salvar();desenhar();});
-    M.querySelectorAll('[data-rm]').forEach(b=>b.onclick=()=>{R.itens.splice(+b.dataset.rm,1);salvar();desenhar();});
-    M.querySelector('[data-add]').onclick=()=>{R.itens.push({pid:null,nome:'',qtd:'',un:'un',foto:'',obs:''});salvar();desenhar();const ns=M.querySelectorAll('[data-f="nome"]');};
+        if(f==='qtd'){it.qtd=inp.value.replace(/\D/g,'').slice(0,7);if(inp.value!==it.qtd)inp.value=it.qtd;}else it[f]=inp.value;salvar();
+        if(f==='nome'){if(it.pid&&(produto(it.pid)||{}).nome!==inp.value)it.pid=null;clearTimeout(inp._t);inp._t=setTimeout(()=>{const x=$('e19x'+k);if(x)x.innerHTML=dica(it,k);},350);} });
+      if(f==='nome')inp.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();const q=M.querySelector(`[data-f="qtd"][data-k="${k}"]`);if(q)q.focus();}});});
+    M.querySelectorAll('[data-ft]').forEach(inp=>inp.onchange=()=>{const fs=inp.files;if(fs&&fs.length)subirFotos(+inp.dataset.ft,fs);inp.value='';});
+    M.querySelectorAll('[data-rf]').forEach(b=>b.onclick=()=>{const [k,j]=b.dataset.rf.split('|').map(Number);R.itens[k].fotos.splice(j,1);salvar();desenhar();});
+    M.querySelectorAll('[data-ver]').forEach(im=>im.onclick=()=>ampliar(im.dataset.ver));
+    M.onclick=e=>{const v=e.target.closest('[data-vinc]'),d=e.target.closest('[data-desv]');
+      if(v){const [k,pid]=v.dataset.vinc.split('|').map(Number);const p=produto(pid);if(!p)return;R.itens[k].pid=p.id;R.itens[k].nome=p.nome;salvar();desenhar();}
+      if(d){R.itens[+d.dataset.desv].pid=null;salvar();desenhar();}};
+    M.querySelectorAll('[data-mais]').forEach(b=>b.onclick=()=>{const [k,d]=b.dataset.mais.split('|').map(Number);const it=R.itens[k];it.qtd=String(Math.max(1,(+it.qtd||0)+d));salvar();const q=M.querySelector(`[data-f="qtd"][data-k="${k}"]`);if(q)q.value=it.qtd;});
+    M.querySelectorAll('[data-rm]').forEach(b=>b.onclick=()=>{const k=+b.dataset.rm,it=R.itens[k];
+      if((String(it.nome).trim()||it.fotos.length)&&!confirm('Remover o produto '+(k+1)+(it.nome?' ('+it.nome+')':'')+'?'))return;
+      R.itens.splice(k,1);Object.keys(subindo).forEach(x=>delete subindo[x]);salvar();desenhar();});
+    M.querySelector('[data-add]').onclick=()=>{R.itens.push(novoItem());salvar();desenhar();
+      const c=$('modal').querySelectorAll('[data-f="nome"]');const u=c[c.length-1];if(u){u.scrollIntoView({block:'center',behavior:'smooth'});setTimeout(()=>u.focus(),250);}};
     $('s19_obs').oninput=()=>{R.obs=$('s19_obs').value;salvar();};
+    $('s19_urg').onchange=()=>{R.urg=$('s19_urg').checked;salvar();desenhar();};
     $('cx').onclick=fechar;
-    $('limpa').onclick=()=>{if(!confirm('Descartar este rascunho?'))return;e04Gravar(K,null);fechar();};
+    $('limpa').onclick=()=>{if(!confirm('Descartar este rascunho? Os produtos e fotos digitados serão apagados.'))return;e04Gravar(K,null);fechar();};
     $('ok').onclick=()=>{const err=M.querySelector('.erro');
+      if(totSub()){err.textContent='Aguarde terminar de enviar as fotos.';return;}
       const k=R.itens.findIndex(i=>!String(i.nome).trim()||!(+i.qtd>0));
-      if(k>=0){err.textContent=`Produto ${k+1}: informe o produto e a quantidade.`;return;}
+      if(k>=0){tentou=true;desenhar();const c=$('modal').querySelector(`[data-card="${k}"]`);if(c)c.scrollIntoView({block:'center',behavior:'smooth'});$('modal').querySelector('.erro').textContent=`Produto ${k+1}: informe o que precisa e a quantidade.`;return;}
       if(enviando)return;enviando=true; // toque duplo: o botão trava e o servidor ignora o mesmo envio
       rodar($('ok'),async()=>{try{
-        const {data,error}=await sb.rpc('e19_criar_solicitacao',{p_idem:R.idem,p_obs:R.obs,p_itens:R.itens.map(i=>({produto_id:i.pid,nome:String(i.nome).trim(),qtd:+i.qtd,unidade:i.un,foto:i.foto||null,obs:i.obs}))});
-        if(error)throw error;e04Gravar(K,null);await carregarE19();fechar();aba='e19sol';render();toast('Solicitação '+data.numero+' enviada ao Estoque 04.');
+        const itens=R.itens.map(i=>({produto_id:i.pid,nome:String(i.nome).trim(),qtd:+i.qtd,unidade:i.un,foto:i.fotos[0]||null,fotos:i.fotos,obs:String(i.obs||'').trim()}));
+        let r=await sb.rpc('e19_criar_solicitacao',{p_idem:R.idem,p_obs:R.obs,p_urgente:!!R.urg,p_itens:itens});
+        if(r.error&&(r.error.code==='PGRST202'||/could not find the function/i.test(r.error.message||''))) // banco ainda sem a versão nova: envia no formato antigo
+          r=await sb.rpc('e19_criar_solicitacao',{p_idem:R.idem,p_obs:(R.urg?'URGENTE. ':'')+(R.obs||''),p_itens:itens.map(i=>({...i,obs:[i.obs,i.fotos.length>1?'(+'+(i.fotos.length-1)+' foto(s) não salvas)':''].filter(Boolean).join(' ')}))});
+        const {data,error}=r;if(error)throw error;
+        e04Gravar(K,null);await carregarE19();fechar();if(e19Eh())aba='e19sol';render();toast('Solicitação '+data.numero+' enviada ao Estoque 04.');
       }finally{enviando=false;}});};
+    if(foco&&foco.f){const el=M.querySelector(`[data-f="${foco.f}"][data-k="${foco.k}"]`);if(el){el.focus();try{if(foco.p!=null)el.setSelectionRange(foco.p,foco.p);}catch(e){}}}
   }
   desenhar();
 }
 
 // ---------- Estoque 04: fila de compras do 19 ----------
-function e19Pendentes(){return e19Itens().filter(i=>i.falta>0).sort((a,b)=>a.sol.id-b.sol.id||a.ordem-b.ordem);}
+function e19Pendentes(){return e19Itens().filter(i=>i.falta>0).sort((a,b)=>(b.sol.urgente?1:0)-(a.sol.urgente?1:0)||a.sol.id-b.sol.id||a.ordem-b.ordem);}
 function e19Fila(){
   if(!E19.ok)return '<div class="vazio">Não foi possível carregar as compras do Estoque 19.</div>';
   const pend=e19Pendentes(),conc=e19Itens().filter(i=>i.falta<=0).sort((a,b)=>b.sol.id-a.sol.id);
   const corP=E19.cor.filter(c=>c.status==='pendente');
-  const linha=i=>`<div class="card"><div class="pinfo" style="align-items:flex-start">${e19Foto(i.foto,true)}<div><div class="t">${esc(i.nome)}${i.produto_id?'':' <span class="tag-lanc">produto novo</span>'} ${e19Badge(i.status)}</div>
+  const linha=i=>`<div class="card" style="${i.sol.urgente&&i.falta>0?'border-color:var(--red)':''}"><div class="pinfo" style="align-items:flex-start">${e19Tira(i,64)}<div><div class="t">${i.sol.urgente&&i.falta>0?'<span class="badge b-venc">🔴 Urgente</span> ':''}${esc(i.nome)}${i.produto_id?'':' <span class="tag-lanc">produto novo</span>'} ${e19Badge(i.status)}</div>
      <div class="meta">${esc(i.sol.numero)} · ${fd(i.sol.criado_em)} · ${esc(e19Pessoa(i.sol.criado_por))}${i.sku?' · SKU '+esc(i.sku):''}</div>
      ${i.obs?`<div class="meta" style="margin:2px 0"><b>Obs.:</b> ${esc(i.obs)}</div>`:''}
      <div class="meta">Solicitado ${e19Qtd(i.qtd,i.unidade)} · comprado ${e19Qtd(i.qtd_comprada,i.unidade)}</div></div></div>
@@ -1704,7 +1769,7 @@ function e19RegistrarCompra(){
      <div class="campo"><label>Data da compra *</label><input data-c="data_compra" type="date" value="${esc(R.cab.data_compra)}"></div></div>
     <h3>Itens comprados</h3>
     <div class="lista">${pend.map(i=>{const s=R.sel[i.id],ab=E19_AB[i.unidade]||i.unidade;return `<div class="card" style="align-items:center;flex-wrap:wrap">
-      <label style="display:flex;gap:10px;align-items:center;flex:1;min-width:240px;cursor:pointer"><input type="checkbox" data-sel="${i.id}" ${s?'checked':''} style="width:22px;height:22px">${e19Foto(i.foto)}
+      <label style="display:flex;gap:10px;align-items:center;flex:1;min-width:240px;cursor:pointer"><input type="checkbox" data-sel="${i.id}" ${s?'checked':''} style="width:22px;height:22px">${e19Tira(i,40)}
        <div><b>${esc(i.nome)}</b><div class="meta" style="margin:0">${esc(i.sol.numero)}${i.obs?' · '+esc(i.obs):''}</div><div class="meta" style="margin:0">Falta comprar: <b>${e19Qtd(i.falta,i.unidade)}</b></div></div></label>
       ${s?`<div style="display:flex;gap:8px;align-items:flex-end"><div class="campo" style="margin:0"><label>Qtd comprada (${ab})</label><input data-q="${i.id}" value="${esc(s.q)}" inputmode="numeric" style="width:90px"></div>
        <div class="campo" style="margin:0"><label>Custo por ${esc(E19_UN[i.unidade]||i.unidade)} (R$) <span class="tag-un">por ${ab}</span></label><input data-cu="${i.id}" value="${esc(s.cu)}" inputmode="decimal" placeholder="0,00" style="width:120px"></div></div>`:''}</div>`;}).join('')}</div>
@@ -1862,7 +1927,7 @@ function abaE19Adm(){
   const subs=[['acessos','Acessos'],['saldo','Saldo do 19'],['solic','Solicitações e valores'],['cor','Correções'+(corP.length?` (${corP.length})`:'')]];
   let h=`<div class="e04-topo"><b>🏬 Estoque 19</b> · só você gerencia os acessos e aprova correções.</div>
   <div class="seg" style="margin:4px 0 10px;flex-wrap:wrap">${subs.map(([k,l])=>`<button class="${e19AdmSub===k?'on':''}" data-e19adm="${k}">${l}</button>`).join('')}</div>`;
-  if(e19AdmSub==='acessos')h+=e19PagAcessos();else if(e19AdmSub==='saldo')h+=e19PagEstoque(true);else if(e19AdmSub==='solic')h+=e19ListaSolic(true)+'<h3>Compras</h3>'+e19ListaCompras();
+  if(e19AdmSub==='acessos')h+=e19PagAcessos();else if(e19AdmSub==='saldo')h+=e19PagEstoque(true);else if(e19AdmSub==='solic')h+=(E04.dono?'<div class="barra"><button class="primary" data-e19act="nova">+ Nova solicitação (em nome do Estoque 19)</button></div>':'')+e19ListaSolic(true)+'<h3>Compras</h3>'+e19ListaCompras();
   else h+=corP.length?`<div class="lista">${corP.map(k=>{const c=E19.fc.find(x=>x.id===k.compra_id)||{};return `<div class="card" style="flex-direction:column;align-items:stretch"><div class="t">${k.proposta.estornar?'Estorno':'Correção'} · Compra #${k.compra_id} · ${esc(c.fornecedor||'')}</div>
     <div class="meta">Pedida por <b>${esc(e04Nome(k.solicitado_por))}</b> em ${fts(k.solicitado_em)} · motivo: ${esc(k.motivo)}</div>${e19Dif(k)}
     <div class="rodape" style="justify-content:flex-start"><button class="small" data-e19cmp="${k.compra_id}">Ver compra</button><button class="small primary" data-e19dk="${k.id}|1">Aprovar</button><button class="small danger" data-e19dk="${k.id}|0">Recusar</button></div></div>`;}).join('')}</div>`:'<div class="vazio">Nenhuma correção pendente.</div>';
