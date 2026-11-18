@@ -1659,7 +1659,7 @@ function e19NovaSolic(){
     const M0=$('modal');const foco=M0&&document.activeElement&&M0.contains(document.activeElement)&&document.activeElement.dataset?{k:document.activeElement.dataset.k,f:document.activeElement.dataset.f,p:document.activeElement.selectionStart}:null;
     const nF=R.itens.reduce((a,i)=>a+i.fotos.length,0),ns=totSub();
     abrir(`<h2>Nova solicitação de compra</h2><div class="sub">Peça qualquer produto — cadastrado ou não. O rascunho fica salvo sozinho, pode fechar e voltar depois.</div>
-    <label class="card" style="cursor:pointer;align-items:center;gap:10px;margin-bottom:10px;${R.urg?'border-color:var(--red);background:#fef2f2':''}"><input type="checkbox" id="s19_urg" ${R.urg?'checked':''} style="width:22px;height:22px;flex:none"><div><b>🔴 Urgente</b><div class="meta" style="margin:0">Marque só se faltar para hoje/amanhã. Aparece em destaque para o Estoque 04.</div></div></label>
+    <label class="card" style="cursor:pointer;align-items:center;justify-content:flex-start;gap:12px;margin-bottom:10px;${R.urg?'border-color:var(--red);background:#fef2f2':''}"><input type="checkbox" id="s19_urg" ${R.urg?'checked':''} style="width:22px;height:22px;flex:none"><div><b>🔴 Urgente</b><div class="meta" style="margin:0">Marque só se faltar para hoje/amanhã. Aparece em destaque para o Estoque 04.</div></div></label>
     <div class="lista">${R.itens.map(cartao).join('')}</div>
     <button data-add="1" style="margin-top:10px;width:100%;padding:12px">+ Adicionar outro produto</button>
     <div class="campo" style="margin-top:12px"><label>Observação geral (opcional)</label><input id="s19_obs" value="${esc(R.obs)}" maxlength="500" placeholder="Ex.: entregar na loja, prazo, fornecedor preferido…"></div>
