@@ -222,7 +222,11 @@ function custo(p){const c=um(p.produtos_custo);return c?+c.custo_medio:0;}
 function nomeDe(uid){const p=D.perfis.find(x=>x.user_id===uid);return p?(p.nome||p.email):'';}
 function norm(s){return String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase();}
 function msgErro(e){const m=(e&&(e.message||e.error_description))||'Erro inesperado.';
-  if(/Invalid login/i.test(m))return 'E-mail ou senha incorretos.';
+  if(/Invalid login/i.test(m))return 'E-mail ou senha incorretos. Se você ainda não criou sua senha (primeiro acesso), toque em "Esqueci a senha" para receber um link e criar.';
+  if(/different from the old/i.test(m))return 'A nova senha precisa ser diferente da anterior.';
+  if(/weak|pwned|easy to guess|known to be/i.test(m))return 'Essa senha é muito fácil de adivinhar. Use outra, misturando letras e números.';
+  if(/session missing|session_not_found|JWT expired|invalid JWT/i.test(m))return 'Seu link de acesso expirou. Peça um novo em "Esqueci a senha".';
+  if(/reauthentication|reauthenticate/i.test(m))return 'Por segurança, entre de novo pelo link do e-mail e crie a senha logo em seguida.';
   if(/Email not confirmed/i.test(m))return 'Confirme seu e-mail antes de entrar (veja sua caixa de entrada).';
   if(/already registered/i.test(m))return 'Este e-mail já tem conta. Use "Entrar".';
   if(/Password should be/i.test(m))return 'A senha precisa ter pelo menos 6 caracteres.';
@@ -256,9 +260,9 @@ async function enviarFoto(pid,file){
 function ampliar(u){const d=document.createElement('div');d.className='lb';d.innerHTML=`<img src="${esc(u)}" alt="">`;d.onclick=()=>d.remove();document.body.appendChild(d);}
 
 // ---------- modal ----------
-function abrir(html,largo){$('modal').className='modal'+(largo?' largo':'');$('modal').innerHTML=html;$('ov').classList.remove('hidden');const f=$('modal').querySelector('input:not([type=hidden]):not([type=file]),select,textarea');if(f&&window.innerWidth>700)setTimeout(()=>f.focus(),30);}
-function fechar(){$('ov').classList.add('hidden');$('modal').innerHTML='';}
-$('ov').addEventListener('mousedown',e=>{if(e.target.id==='ov')fechar();});
+function abrir(html,largo){delete $('modal').dataset.fixo;$('modal').className='modal'+(largo?' largo':'');$('modal').innerHTML=html;$('ov').classList.remove('hidden');const f=$('modal').querySelector('input:not([type=hidden]):not([type=file]),select,textarea');if(f&&window.innerWidth>700)setTimeout(()=>f.focus(),30);}
+function fechar(){$('ov').classList.add('hidden');$('modal').innerHTML='';delete $('modal').dataset.fixo;}
+$('ov').addEventListener('mousedown',e=>{if(e.target.id==='ov'&&!$('modal').dataset.fixo)fechar();});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('ov').classList.contains('hidden'))fechar();});
 async function rodar(btn,fn){const err=$('modal').querySelector('.erro');if(err)err.textContent='';btn.disabled=true;
   try{await fn();}catch(e){console.error(e);if(err)err.textContent=msgErro(e);else toast(msgErro(e));btn.disabled=false;}}
@@ -301,18 +305,38 @@ function telaPendente(){
   <div class="alt"><button class="link" id="ps">Sair</button></div></div>`;
   $('pv').onclick=()=>carregarPerfil();$('ps').onclick=()=>sb.auth.signOut();
 }
-function modalNovaSenha(){
-  abrir(`<h2>Criar nova senha</h2><div class="campo"><label>Nova senha</label><input id="ns" type="password" minlength="6" autocomplete="new-password"></div>
-  <div class="erro"></div><div class="rodape"><button class="primary" id="ok">Salvar senha</button></div>`);
-  $('ok').onclick=()=>rodar($('ok'),async()=>{const {error}=await sb.auth.updateUser({password:$('ns').value});if(error)throw error;fechar();toast('Senha alterada.');});
+function modalCriarSenha(titulo,sub){
+  if($('modal').dataset.fixo==='senha')return; // já aberto
+  abrir(`<h2>${titulo}</h2><div class="sub">${sub}</div>
+  <div class="campo"><label>Nova senha</label><input id="ds_1" type="password" autocomplete="new-password" minlength="6" placeholder="mínimo 6 caracteres"></div>
+  <div class="campo"><label>Repita a senha</label><input id="ds_2" type="password" autocomplete="new-password"></div>
+  <label style="display:flex;gap:8px;align-items:center;font-size:13px;margin:-2px 0 8px;cursor:pointer"><input type="checkbox" id="ds_ver" style="width:18px;height:18px"> Mostrar senha</label>
+  <div class="erro"></div><div class="rodape"><button class="primary" id="ok" style="width:100%">Salvar senha</button></div>`);
+  $('modal').dataset.fixo='senha';
+  $('ds_ver').onchange=()=>{const t=$('ds_ver').checked?'text':'password';$('ds_1').type=t;$('ds_2').type=t;};
+  $('ds_2').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();$('ok').click();}});
+  $('ok').onclick=()=>{const e=$('modal').querySelector('.erro'),s1=$('ds_1').value,s2=$('ds_2').value;e.textContent='';
+    if(s1.length<6){e.textContent='A senha precisa ter pelo menos 6 caracteres.';return;}
+    if(s1!==s2){e.textContent='As duas senhas não estão iguais.';return;}
+    rodar($('ok'),async()=>{
+      const {data:{session:s0}}=await sb.auth.getSession();if(!s0)throw new Error('session missing');
+      const {data,error}=await sb.auth.updateUser({password:s1,data:{senha_definida:true}});
+      if(error&&!/different from the old/i.test(error.message||''))throw error;
+      if(data&&data.user&&sessao)sessao.user=data.user;
+      delete $('modal').dataset.fixo;fechar();toast('Senha criada! Nos próximos acessos entre com seu e-mail e essa senha.');});};
 }
+function modalNovaSenha(){modalCriarSenha('Criar nova senha','Escolha sua nova senha de acesso (mínimo 6 caracteres).');}
+function e19DefinirSenhaX(){modalCriarSenha('Bem-vindo ao Estoque 19','Crie sua senha para os próximos acessos (mínimo 6 caracteres).');}
 sb.auth.onAuthStateChange((ev,s)=>{
   if(ev==='PASSWORD_RECOVERY'){sessao=s;setTimeout(modalNovaSenha,300);}
   if(ev==='SIGNED_IN'&&(!sessao||sessao.user.id!==s.user.id)){sessao=s;setTimeout(carregarPerfil,0);}
   if(ev==='SIGNED_OUT'){sessao=null;perfil=null;aba=null;modoLogin='entrar';setTimeout(()=>telaLogin(),0);}
   if(s)sessao=s;
 });
-async function iniciar(){const {data:{session}}=await sb.auth.getSession();sessao=session;if(!sessao)return telaLogin();await carregarPerfil();}
+async function iniciar(){
+  const h=new URLSearchParams(location.hash.replace(/^#/,'')+'&'+location.search.replace(/^\?/,''));let aviso='';
+  if(h.get('error')||h.get('error_code')){aviso=/expired|not found|invalid/i.test((h.get('error_code')||'')+' '+(h.get('error_description')||''))?'Este link já foi usado ou expirou. Toque em "Esqueci a senha", informe seu e-mail e use o link NOVO que chegar.':'Não foi possível entrar pelo link. Toque em "Esqueci a senha" para receber um novo.';history.replaceState(null,'',location.pathname);}
+  const {data:{session}}=await sb.auth.getSession();sessao=session;if(!sessao)return telaLogin(aviso);await carregarPerfil();}
 async function carregarPerfil(){
   const {data,error}=await sb.from('perfis').select('*').eq('user_id',sessao.user.id).maybeSingle();
   if(error){$('app').innerHTML=`<div class="login">${LOGO}<h1>Tudo Mix Estoque</h1><p class="erro">Não foi possível carregar seu acesso. Recarregue a página.</p></div>`;return;}
@@ -1947,14 +1971,7 @@ async function e19EnviarConvite(email,nome){
   const {error}=await sb.auth.signInWithOtp({email,options:{shouldCreateUser:true,emailRedirectTo:location.origin+location.pathname,data:{nome}}});
   if(error)throw error;
 }
-function e19DefinirSenha(){
-  abrir(`<h2>Bem-vindo ao Estoque 19</h2><div class="sub">Defina sua senha para os próximos acessos (mínimo 6 caracteres).</div>
-  <div class="campo"><label>Nova senha</label><input id="ds_1" type="password" autocomplete="new-password" minlength="6"></div>
-  <div class="campo"><label>Repita a senha</label><input id="ds_2" type="password" autocomplete="new-password"></div>
-  <div class="erro"></div><div class="rodape"><button class="primary" id="ok">Salvar senha</button></div>`);
-  $('ok').onclick=()=>{const e=$('modal').querySelector('.erro');if($('ds_1').value.length<6){e.textContent='A senha precisa ter pelo menos 6 caracteres.';return;}if($('ds_1').value!==$('ds_2').value){e.textContent='As senhas não conferem.';return;}
-    rodar($('ok'),async()=>{const {error}=await sb.auth.updateUser({password:$('ds_1').value,data:{senha_definida:true}});if(error)throw error;fechar();toast('Senha criada. Use seu e-mail e essa senha para entrar.');});};
-}
+function e19DefinirSenha(){e19DefinirSenhaX();}
 
 // ---------- eventos do Estoque 19 ----------
 $('app').addEventListener('click',async e=>{
