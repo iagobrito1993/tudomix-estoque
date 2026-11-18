@@ -631,8 +631,8 @@ $('app').addEventListener('click',async e=>{
   if(a==='e04desp'&&E04.pode)e04Despacho();
   if(a==='e04acesso'&&E04.dono){t.disabled=true;const {error}=await sb.rpc('e04_definir_estoquista',{p_user:val('e04_est')||null});t.disabled=false;if(error)toast(msgErro(error));else{await carregarE04();render();toast('Acesso do Estoque 04 atualizado.');}}
   if(a==='e04csv'&&E04.pode){const L=[['Produto','SKU','Saldo Estoque 04','Custo final médio/un.','Valor']];E04.saldos.filter(x=>x.qtd>0).forEach(x=>{const p=produto(x.produto_id);L.push([p.nome,p.sku||'',x.qtd,dec(x.custo_medio),dec(x.qtd*x.custo_medio)]);});
-    L.push([]);L.push(['Lançamento','Tipo','Situação','Data','Confirmado por','Confirmado em','Produto','SKU','Código lido','Qtd','Custo merc./un.','Taxa','Comissão','Taxa extra','Custo total','Custo final/un.','Destino','Local','Unidade','Transportadora','Etiquetas']);
-    E04.movs.forEach(m=>e04ItensDe(m.id).forEach(i=>{const p=produto(i.produto_id);L.push([m.id,m.tipo,m.status,fd(m.data),e04Nome(m.criado_por),fts(m.criado_em),p.nome,p.sku||'',i.codigo_lido||'',i.qtd,i.custo_unit!=null?dec(i.custo_unit):'',i.taxa!=null?dec(i.taxa):'',i.comissao!=null?dec(i.comissao):'',i.taxa_extra!=null?dec(i.taxa_extra):'',i.custo_total!=null?dec(i.custo_total):'',i.custo_final_unit!=null?dec(i.custo_final_unit):'',m.destino_nome||'',m.destino_local||'',m.destino_unidade||'',m.transportadora||'',e04VolsDe(m.id).map(v=>v.etiqueta).join(' | ')]);}));baixarCSV('estoque04_'+hoje()+'.csv',L);}
+    L.push([]);L.push(['Lançamento','Tipo','Situação','Data','Confirmado por','Confirmado em','Produto','SKU','Código lido','Qtd','Preço compra/un.','Subtotal','Acerto','Transporte','Taxa','Comissão','Taxa extra','Custo total','Custo final/un.','Destino','Local','Unidade','Transportadora','Etiquetas']);
+    E04.movs.forEach(m=>e04ItensDe(m.id).forEach(i=>{const p=produto(i.produto_id);L.push([m.id,m.tipo,m.status,fd(m.data),e04Nome(m.criado_por),fts(m.criado_em),p.nome,p.sku||'',i.codigo_lido||'',i.qtd,i.custo_unit!=null?dec(i.custo_unit):'',i.subtotal!=null?dec(i.subtotal):'',i.acerto!=null?dec(i.acerto):'',i.frete!=null?dec(i.frete):'',i.taxa!=null?dec(i.taxa):'',i.comissao!=null?dec(i.comissao):'',i.taxa_extra!=null?dec(i.taxa_extra):'',i.custo_total!=null?dec(i.custo_total):'',i.custo_final_unit!=null?dec(i.custo_final_unit):'',m.destino_nome||'',m.destino_local||'',m.destino_unidade||'',m.transportadora||'',e04VolsDe(m.id).map(v=>v.etiqueta).join(' | ')]);}));baixarCSV('estoque04_'+hoje()+'.csv',L);}
   if(a==='novacp')modalConta(null);
   if(a==='cplimpa'){cpF.de='';cpF.ate='';render();}
   if(a==='clcsv')csvCliente();
@@ -1177,7 +1177,9 @@ function e04TabelaMudanca(s){
   if(s.tipo==='estorno'){(at.itens||[]).forEach(i=>L.push([produto(i.produto_id).nome,'Quantidade',un(i.qtd),'0 (estorno)']));return e04Tab(L);}
   const nomesC={data:'Data',obs:'Observação',destino_tipo:'Tipo de destino',destino_nome:'Quem recebe',destino_local:'Local de entrega',destino_unidade:'Unidade',transportadora:'Transportadora'};
   Object.entries(pr.cabecalho||{}).forEach(([k,v])=>L.push(['Cabeçalho',nomesC[k]||k,esc((at.cabecalho||{})[k]??'—'),esc(v||'—')]));
-  const nomesI={qtd:'Quantidade',custo_unit:'Custo merc./un.',taxa:'Taxa',comissao:'Comissão',taxa_extra:'Taxa extra'};
+  const nomesD={acerto_pct:'Acerto (%)',acerto_tipo:'Acréscimo/desconto',frete:'Transporte',taxa:'Taxa',comissao:'Comissão',taxa_extra:'Taxa extra'},ad=at.despesas||{};
+  Object.entries(pr.despesas||{}).forEach(([k,v])=>L.push(['Pedido',nomesD[k]||k,k==='acerto_tipo'?esc(ad[k]||'—'):k==='acerto_pct'?dec(ad[k])+'%':brl(ad[k]),k==='acerto_tipo'?esc(v):k==='acerto_pct'?dec(v)+'%':brl(v)]));
+  const nomesI={qtd:'Quantidade',custo_unit:'Preço compra/un.',taxa:'Taxa',comissao:'Comissão',taxa_extra:'Taxa extra'};
   (pr.itens||[]).forEach(x=>{const i=(at.itens||[]).find(y=>y.id===x.id)||{};Object.entries(x).filter(([k])=>k!=='id').forEach(([k,v])=>L.push([produto(i.produto_id).nome,nomesI[k]||k,k==='qtd'?un(i[k]):brl(i[k],2),k==='qtd'?un(v):brl(v,2)]));});
   (pr.volumes||[]).forEach(x=>{const v=(at.volumes||[]).find(y=>y.id===x.id)||{};L.push(['Volume '+(v.ordem||''),'Etiqueta',esc(v.etiqueta||''),esc(x.etiqueta)]);});
   return e04Tab(L);
@@ -1213,58 +1215,119 @@ function e04Escolher(cod,ids,voltar,usar){
 }
 
 // ---------- ENTRADA por leitor ----------
+// arredonda em centavos como o banco (metade se afasta do zero)
+function e04R2(x){return Math.sign(x)*Math.round(Math.abs(x)*100+1e-9)/100;}
+// mesmo cálculo do servidor (e04_ratear): cada valor do pedido entra uma única vez, rateado pelo subtotal da linha
+function e04Calcular(itens,d){
+  const lin=itens.map(i=>{const q=+i.qtd||0,cu=e04Num(i.cu);return {q,cu,ok:q>0&&cu!==null&&!Number.isNaN(cu)&&cu>=0,sub:q>0&&cu>=0?e04R2(q*cu):0};});
+  const v=k=>{const n=e04Num(d[k]);return n===null?0:n;},pct=v('pct'),fr=v('frete'),tx=v('tx'),co=v('co'),te=v('te');
+  let erro='';
+  if([pct,fr,tx,co,te].some(Number.isNaN))erro='Confira os valores digitados em Acerto e transporte.';
+  else if(pct<0||pct>1000)erro='Percentual do acerto inválido.';
+  else if(d.tipo==='desconto'&&pct>100)erro='Desconto não pode passar de 100%.';
+  else if([fr,tx,co,te].some(x=>x<0))erro='Transporte, taxa, comissão e taxa extra não podem ser negativos.';
+  const S=e04R2(lin.reduce((a,l)=>a+l.sub,0)),AC=erro?0:e04R2(S*pct/100)*(d.tipo==='desconto'?-1:1);
+  const usaQ=S===0,w=lin.map(l=>usaQ?l.q:l.sub),tw=w.reduce((a,b)=>a+b,0);
+  const rat=V=>{let cw=0;return w.map(x=>{const a=tw?e04R2(V*(cw+x)/tw)-e04R2(V*cw/tw):0;cw+=x;return e04R2(a);});};
+  const ra=rat(AC),rf=rat(erro?0:fr),rt=rat(erro?0:tx),rc=rat(erro?0:co),re=rat(erro?0:te);
+  const L=lin.map((l,k)=>{const dsp=e04R2(rt[k]+rc[k]+re[k]),tot=e04R2(l.sub+ra[k]+rf[k]+dsp);return {...l,ac:ra[k],fr:rf[k],tx:rt[k],co:rc[k],te:re[k],dsp,tot,fin:l.q>0?tot/l.q:0};});
+  return {L,S,AC,pct,fr,tx,co,te,erro,dsp:e04R2(tx+co+te),tot:e04R2(L.reduce((a,l)=>a+l.tot,0)),qt:lin.reduce((a,l)=>a+l.q,0),ok:!erro&&lin.length>0&&lin.every(l=>l.ok)};
+}
+function e04TabCusto(R,C,comSaldo){
+  return `<div class="scroll"><table class="planilha"><tr><th>Produto</th><th>SKU</th><th class="n">Qtd</th><th class="n">Subtotal de compra</th><th class="n">Acerto</th><th class="n">Transporte</th><th class="n">Demais despesas</th><th class="n">Custo total do item</th><th class="n">Custo por unidade</th>${comSaldo?'<th class="n">Saldo depois</th>':''}</tr>
+  ${R.itens.map((i,k)=>{const c=C.L[k],p=produto(i.pid);return `<tr><td style="white-space:normal">${esc(p.nome)}</td><td>${esc(p.sku||'')}</td><td class="n">${un(c.q)}</td><td class="n">${c.ok?brl(c.sub):'—'}</td><td class="n">${brl(c.ac)}</td><td class="n">${brl(c.fr)}</td><td class="n">${brl(c.dsp)}</td><td class="n"><b>${c.ok?brl(c.tot):'—'}</b></td><td class="n"><b>${c.ok?brl(c.fin,2):'—'}</b></td>${comSaldo?`<td class="n">${un(e04Saldo(i.pid)+c.q)}</td>`:''}</tr>`;}).join('')}
+  <tr><td colspan="2"><b>Pedido</b></td><td class="n"><b>${un(C.qt)}</b></td><td class="n"><b>${brl(C.S)}</b></td><td class="n"><b>${brl(C.AC)}</b></td><td class="n"><b>${brl(C.fr)}</b></td><td class="n"><b>${brl(C.dsp)}</b></td><td class="n"><b>${brl(C.tot)}</b></td><td></td>${comSaldo?'<td></td>':''}</tr></table></div>
+  <div class="calc">Acerto = ${dec(C.pct)}% ${R.desp.tipo==='desconto'?'de desconto':'de acréscimo'} sobre a mercadoria (${brl(C.S)}). Acerto, transporte, taxa, comissão e taxa extra são lançados uma vez no pedido e rateados pelo subtotal de cada linha. Custo por unidade = custo total do item ÷ quantidade.</div>`;
+}
 function e04Entrada(){
   const R=e04Ler('e04_rasc_ent',null)||{idem:crypto.randomUUID(),data:hoje(),obs:'',itens:[],revisar:false};
+  if(!R.desp)R.desp={pct:'',tipo:'acrescimo',frete:'',tx:'',co:'',te:''};if(!R.aba)R.aba='merc';
+  R.itens=R.itens.map(i=>({pid:i.pid,cod:i.cod||'',qtd:i.qtd,cu:i.cu??''}));
   const salvar=()=>e04Gravar('e04_rasc_ent',R);
-  const linha=(pid,cod)=>{const ex=R.itens.find(i=>i.pid===pid);if(ex){ex.qtd++;if(cod&&!ex.cod)ex.cod=cod;}else R.itens.push({pid,cod:cod||'',qtd:1,cu:'',tx:'',co:'',te:''});R.revisar=false;salvar();desenhar();};
-  const calcL=i=>{const cu=e04Num(i.cu),tx=e04Num(i.tx),co=e04Num(i.co),te=e04Num(i.te);if(!(i.qtd>0)||cu===null||[cu,tx,co,te].some(Number.isNaN))return null;const tot=i.qtd*cu+(tx||0)+(co||0)+(te||0);return {cu,tx:tx||0,co:co||0,te:te||0,tot,fin:tot/i.qtd};};
+  const linha=(pid,cod)=>{const ex=R.itens.find(i=>i.pid===pid);if(ex){ex.qtd=(+ex.qtd||0)+1;if(cod&&!ex.cod)ex.cod=cod;}else R.itens.push({pid,cod:cod||'',qtd:1,cu:''});R.revisar=false;salvar();desenhar();setTimeout(()=>$('e_cod')&&$('e_cod').focus(),40);};
   const ler=cod=>{cod=limpaCod(cod);if(!cod)return;const ids=e04Achar(cod);
     if(ids.length===1)return linha(ids[0],cod);
     if(ids.length>1)return e04Escolher(cod,ids,desenhar,pid=>linha(pid,cod));
     e04Desconhecido(cod,true,desenhar,pid=>linha(pid,cod));};
+  const ABAS=[['merc','1. Mercadorias'],['desp','2. Acerto e transporte'],['custo','3. Custo médio e confirmação']];
+  function atualiza(){ // recalcula sem redesenhar (mantém o cursor no campo)
+    const C=e04Calcular(R.itens,R.desp),M=$('modal'),put=(id,t)=>{const e=M.querySelector('#'+id);if(e)e.textContent=t;};
+    C.L.forEach((c,k)=>put('e_sub'+k,c.ok?brl(c.sub):'—'));put('e_totm',brl(C.S));put('e_acv',(C.AC<0?'− ':'+ ')+brl(Math.abs(C.AC)));put('e_acb',brl(C.S));
+    put('e_fin',brl(C.tot));put('e_res',`${R.itens.length} produto(s) · ${un(C.qt)} un. · mercadoria ${brl(C.S)} · custo do pedido ${brl(C.tot)}`);
+    const er=M.querySelector('#e_dErr');if(er)er.textContent=C.erro;return C;}
   function desenhar(){
-    const totU=R.itens.reduce((a,i)=>a+(+i.qtd||0),0),calcs=R.itens.map(calcL),ok=R.itens.length&&calcs.every(Boolean);
-    if(R.revisar&&ok){
-      abrir(`<h2>Conferir entrada no Estoque 04</h2><div class="sub">Confira produtos, quantidades e custos. O saldo só muda ao clicar em <b>Confirmar entrada</b>.</div>
-      <div class="scroll"><table class="planilha"><tr><th>Produto</th><th>SKU</th><th class="n">Qtd</th><th class="n">Custo merc./un.</th><th class="n">Taxa</th><th class="n">Comissão</th><th class="n">Taxa extra</th><th class="n">Custo total</th><th class="n">Custo final/un.</th><th class="n">Saldo depois</th></tr>
-      ${R.itens.map((i,k)=>{const c=calcs[k],p=produto(i.pid);return `<tr><td style="white-space:normal">${esc(p.nome)}${i.cod?`<div class="meta" style="margin:0">código ${esc(i.cod)}</div>`:''}</td><td>${esc(p.sku||'')}</td><td class="n">${un(i.qtd)}</td><td class="n">${brl(c.cu,2)}</td><td class="n">${brl(c.tx)}</td><td class="n">${brl(c.co)}</td><td class="n">${brl(c.te)}</td><td class="n"><b>${brl(c.tot)}</b><div class="meta" style="margin:0">(${un(i.qtd)} × ${brl(c.cu,2)}) + ${brl(c.tx)} + ${brl(c.co)} + ${brl(c.te)}</div></td><td class="n"><b>${brl(c.fin,2)}</b></td><td class="n">${un(e04Saldo(i.pid)+i.qtd)}</td></tr>`;}).join('')}
-      <tr><td colspan="2"><b>Total</b></td><td class="n"><b>${un(totU)}</b></td><td colspan="4"></td><td class="n"><b>${brl(calcs.reduce((a,c)=>a+c.tot,0))}</b></td><td colspan="2"></td></tr></table></div>
+    const C=e04Calcular(R.itens,R.desp);
+    if(R.revisar&&C.ok){
+      abrir(`<h2>Revisar e confirmar entrada no Estoque 04</h2><div class="sub">Confira o resumo. O saldo só muda ao tocar em <b>Confirmar entrada</b>.</div>
+      ${e04TabCusto(R,C,true)}
+      <div class="duas"><div class="total">Mercadorias: <b>${brl(C.S)}</b><br>Acerto (${dec(C.pct)}% ${R.desp.tipo==='desconto'?'desconto':'acréscimo'}): <b>${brl(C.AC)}</b><br>Transporte: <b>${brl(C.fr)}</b><br>Taxa ${brl(C.tx)} · Comissão ${brl(C.co)} · Taxa extra ${brl(C.te)}</div>
+       <div class="total">Total do pedido<br><b style="font-size:22px">${brl(C.tot)}</b><br>${R.itens.length} produto(s) · ${un(C.qt)} un.</div></div>
       <div class="meta">Data ${fd(R.data)}${R.obs?' · '+esc(R.obs):''}</div>
       <div class="erro"></div><div class="rodape"><button id="vol">Voltar e corrigir</button><button class="primary" id="ok">Confirmar entrada</button></div>`,true);
       $('vol').onclick=()=>{R.revisar=false;salvar();desenhar();};
-      $('ok').onclick=()=>rodar($('ok'),async()=>{
-        const {data,error}=await sb.rpc('e04_confirmar_entrada',{p_idem:R.idem,p_data:R.data,p_obs:R.obs,p_itens:R.itens.map((i,k)=>({produto_id:i.pid,qtd:+i.qtd,custo_unit:calcs[k].cu,taxa:calcs[k].tx,comissao:calcs[k].co,taxa_extra:calcs[k].te,codigo:i.cod||''}))});
-        if(error)throw error;e04Gravar('e04_rasc_ent',null);await carregarE04();fechar();e04Sub='historico';render();toast('Entrada #'+data+' confirmada: +'+un(totU)+' un. no Estoque 04.');});
+      $('ok').onclick=()=>{if(R.enviando)return;R.enviando=true;rodar($('ok'),async()=>{try{
+        const {data,error}=await sb.rpc('e04_confirmar_entrada',{p_idem:R.idem,p_data:R.data,p_obs:R.obs,
+          p_itens:R.itens.map(i=>({produto_id:i.pid,qtd:+i.qtd,custo_unit:e04Num(i.cu),codigo:i.cod||''})),
+          p_desp:{acerto_pct:C.pct,acerto_tipo:R.desp.tipo,frete:C.fr,taxa:C.tx,comissao:C.co,taxa_extra:C.te}});
+        if(error)throw error;e04Gravar('e04_rasc_ent',null);await carregarE04();fechar();e04Sub='historico';render();toast('Entrada #'+data+' confirmada: +'+un(C.qt)+' un. no Estoque 04 · '+brl(C.tot)+'.');
+      }finally{R.enviando=false;}});};
       return;
     }
-    abrir(`<h2>📦 Entrada no Estoque 04</h2><div class="sub">Rascunho: pode conferir e corrigir à vontade. O saldo só muda ao confirmar.</div>
-    <div class="campo leitor prod"><label>📦 Leia ou digite o código de barras do PRODUTO</label><input id="e_cod" inputmode="text" autocomplete="off" spellcheck="false" placeholder="Bipe o código e aguarde — ou digite e tecle Enter"></div>
-    <div class="campo"><label>Ou busque por nome / SKU</label><input id="e_busca" placeholder="Nome ou SKU" autocomplete="off"><div id="e_sug" class="sugs hidden"></div></div>
-    ${R.itens.length?`<div class="scroll"><table class="planilha nt"><tr><th>Produto</th><th class="n">Qtd</th><th class="n">Custo merc. (R$)<br><span class="tag-un">por unidade</span></th><th class="n">Taxa (R$)<br><span class="tag-lanc">pelo lançamento</span></th><th class="n">Comissão (R$)<br><span class="tag-lanc">pelo lançamento</span></th><th class="n">Taxa extra (R$)<br><span class="tag-lanc">opcional</span></th><th class="n">Total / final un.</th><th></th></tr>
-    ${R.itens.map((i,k)=>{const p=produto(i.pid),c=calcs[k];return `<tr><td style="white-space:normal;min-width:180px"><b>${esc(p.nome)}</b><div class="meta" style="margin:0">${esc(p.sku||'')}${i.cod?' · código '+esc(i.cod):''} · saldo E04 ${un(e04Saldo(i.pid))}</div></td>
-      <td class="n"><input data-ei="${k}" data-f="qtd" value="${i.qtd}" inputmode="numeric" style="width:64px;text-align:right"></td>
-      ${['cu','tx','co','te'].map(f=>`<td class="n"><input data-ei="${k}" data-f="${f}" value="${esc(i[f])}" inputmode="decimal" placeholder="${f==='te'?'0,00':''}" style="width:86px;text-align:right"></td>`).join('')}
-      <td class="n">${c?`<b>${brl(c.tot)}</b><div class="meta" style="margin:0">${brl(c.fin,2)}/un.</div>`:'<span class="meta">—</span>'}</td><td><button class="small danger" data-erm="${k}">✕</button></td></tr>`;}).join('')}</table></div>
-    <div class="calc">Custo total da linha = (quantidade × custo unitário da mercadoria) + taxa + comissão + taxa extra · Custo final por unidade = custo total ÷ quantidade. Taxa extra em branco = R$ 0,00.</div>`:'<div class="vazio" style="padding:16px">Bipe o primeiro produto. Cada nova leitura do mesmo código soma 1 unidade na mesma linha.</div>'}
-    <div class="duas"><div class="campo"><label>Data</label><input id="e_data" type="date" value="${esc(R.data)}"></div><div class="campo"><label>Observação</label><input id="e_obs" value="${esc(R.obs)}"></div></div>
-    <div class="total">Rascunho: ${R.itens.length} produto(s) · ${un(totU)} un.</div><div class="erro"></div>
+    let corpo='';
+    if(R.aba==='merc'){
+      corpo=`<div class="campo leitor prod"><label>📦 Leia ou digite o código de barras do PRODUTO</label><input id="e_cod" inputmode="text" autocomplete="off" spellcheck="false" placeholder="Bipe o código e aguarde — ou digite e tecle Enter"></div>
+      <div class="campo"><label>Ou busque por nome / SKU</label><input id="e_busca" placeholder="Nome ou SKU" autocomplete="off"><div id="e_sug" class="sugs hidden"></div></div>
+      ${R.itens.length?`<div class="scroll"><table class="planilha nt"><tr><th>Produto</th><th class="n">Qtd recebida</th><th class="n">Preço de compra (R$)<br><span class="tag-un">por unidade</span></th><th class="n">Subtotal</th><th></th></tr>
+      ${R.itens.map((i,k)=>{const p=produto(i.pid),c=C.L[k];return `<tr><td style="white-space:normal;min-width:180px"><b>${esc(p.nome)}</b><div class="meta" style="margin:0">${esc(p.sku||'')}${i.cod?' · código '+esc(i.cod):''} · saldo E04 ${un(e04Saldo(i.pid))}</div></td>
+        <td class="n"><input data-ei="${k}" data-f="qtd" value="${esc(i.qtd)}" inputmode="numeric" style="width:70px;text-align:right"></td>
+        <td class="n"><input data-ei="${k}" data-f="cu" value="${esc(i.cu)}" inputmode="decimal" placeholder="0,00" style="width:96px;text-align:right"></td>
+        <td class="n"><b id="e_sub${k}">${c.ok?brl(c.sub):'—'}</b></td><td><button class="small danger" data-erm="${k}">✕</button></td></tr>`;}).join('')}
+      <tr><td colspan="3"><b>Total das mercadorias</b></td><td class="n"><b id="e_totm">${brl(C.S)}</b></td><td></td></tr></table></div>
+      <div class="calc">Subtotal da linha = quantidade × preço de compra por unidade. Cada nova leitura do mesmo código soma 1 unidade na linha.</div>`:'<div class="vazio" style="padding:16px">Bipe o primeiro produto. Cada nova leitura do mesmo código soma 1 unidade na mesma linha.</div>'}
+      <div class="duas"><div class="campo"><label>Data</label><input id="e_data" type="date" value="${esc(R.data)}"></div><div class="campo"><label>Observação</label><input id="e_obs" value="${esc(R.obs)}"></div></div>`;
+    }else if(R.aba==='desp'){
+      const d=R.desp;
+      corpo=`<div class="total">Base do acerto: total das mercadorias, antes do transporte e das taxas = <b id="e_acb">${brl(C.S)}</b></div>
+      <div class="duas"><div class="campo"><label>Percentual do acerto (%)</label><input data-d="pct" value="${esc(d.pct)}" inputmode="decimal" placeholder="0"></div>
+       <div class="campo"><label>O acerto é</label><div class="seg"><button class="${d.tipo!=='desconto'?'on':''}" data-dt="acrescimo">Acréscimo (+)</button><button class="${d.tipo==='desconto'?'on':''}" data-dt="desconto">Desconto (−)</button></div></div></div>
+      <div class="total">Valor do acerto: <b id="e_acv" style="font-size:18px">${(C.AC<0?'− ':'+ ')+brl(Math.abs(C.AC))}</b></div>
+      <div class="campo"><label>Custo total do transporte (R$) <span class="tag-lanc">uma vez no pedido</span></label><input data-d="frete" value="${esc(d.frete)}" inputmode="decimal" placeholder="0,00"></div>
+      <div class="tres"><div class="campo"><label>Taxa (R$) <span class="tag-lanc">pedido</span></label><input data-d="tx" value="${esc(d.tx)}" inputmode="decimal" placeholder="0,00"></div>
+       <div class="campo"><label>Comissão (R$) <span class="tag-lanc">pedido</span></label><input data-d="co" value="${esc(d.co)}" inputmode="decimal" placeholder="0,00"></div>
+       <div class="campo"><label>Taxa extra (R$) <span class="tag-lanc">opcional</span></label><input data-d="te" value="${esc(d.te)}" inputmode="decimal" placeholder="0,00"></div></div>
+      <div class="calc">Cada valor é lançado uma única vez para o pedido inteiro e distribuído entre os produtos na proporção do subtotal de cada linha. Campo em branco = R$ 0,00.</div>
+      <div class="erro" id="e_dErr">${C.erro}</div>`;
+    }else{
+      corpo=R.itens.length?e04TabCusto(R,C,false)+(C.ok?'':'<div class="warn">'+(C.erro||'Informe quantidade e preço de compra de todos os produtos na aba Mercadorias.')+'</div>'):'<div class="vazio">Nenhum produto lançado ainda.</div>';
+    }
+    abrir(`<h2>📦 Entrada no Estoque 04</h2><div class="sub">Rascunho salvo automaticamente: pode trocar de aba ou fechar. O saldo só muda ao confirmar.</div>
+    <div class="seg" style="margin-bottom:10px;flex-wrap:wrap">${ABAS.map(([k,l])=>`<button class="${R.aba===k?'on':''}" data-eaba="${k}">${l}</button>`).join('')}</div>
+    ${corpo}
+    <div class="total" id="e_res">${R.itens.length} produto(s) · ${un(C.qt)} un. · mercadoria ${brl(C.S)} · custo do pedido ${brl(C.tot)}</div><div class="erro"></div>
     <div class="rodape"><button id="cx">Fechar (mantém rascunho)</button>${R.itens.length?'<button class="danger" id="limpa">Descartar rascunho</button>':''}<button class="primary" id="rev">Revisar e confirmar</button></div>`,true);
     const M=$('modal');
-    const cod=$('e_cod');cod.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key==='Tab'){e.preventDefault();const v=cod.value;cod.value='';ler(v);}});
-    M.querySelectorAll('[data-ei]').forEach(inp=>inp.addEventListener('change',()=>{const i=R.itens[+inp.dataset.ei],f=inp.dataset.f;if(f==='qtd')i.qtd=Math.max(0,num(inp.value));else i[f]=inp.value;salvar();desenhar();}));
-    M.querySelectorAll('[data-erm]').forEach(b=>b.onclick=()=>{R.itens.splice(+b.dataset.erm,1);salvar();desenhar();});
-    ligarBusca($('e_busca'),$('e_sug'),false,p=>linha(p.id,''));
-    $('e_data').onchange=()=>{R.data=val('e_data')||hoje();salvar();};$('e_obs').oninput=()=>{R.obs=$('e_obs').value;salvar();};
-    $('cx').onclick=fechar;if($('limpa'))$('limpa').onclick=()=>{e04Gravar('e04_rasc_ent',null);fechar();e04Entrada();};
-    $('rev').onclick=()=>{const err=M.querySelector('.erro');if(!R.itens.length){err.textContent='Adicione pelo menos um produto.';return;}
-      const k=R.itens.findIndex((i,x)=>!calcs[x]);if(k>=0){err.textContent='Informe quantidade e custo da mercadoria de "'+produto(R.itens[k].pid).nome+'".';return;}R.revisar=true;salvar();desenhar();};
-    setTimeout(()=>{if(!document.activeElement||document.activeElement===document.body||document.activeElement.id==='rev')cod.focus();},30);
-    cod.focus();
+    M.querySelectorAll('[data-eaba]').forEach(b=>b.onclick=()=>{R.aba=b.dataset.eaba;salvar();desenhar();});
+    if(R.aba==='merc'){
+      const cod=$('e_cod');cod.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key==='Tab'){e.preventDefault();const v=cod.value;cod.value='';ler(v);}});
+      M.querySelectorAll('[data-ei]').forEach(inp=>{inp.addEventListener('input',()=>{const i=R.itens[+inp.dataset.ei];if(inp.dataset.f==='qtd')i.qtd=Math.max(0,Math.floor(num(inp.value)||0));else i.cu=inp.value;salvar();atualiza();});
+        inp.addEventListener('change',()=>desenhar());});
+      M.querySelectorAll('[data-erm]').forEach(b=>b.onclick=()=>{R.itens.splice(+b.dataset.erm,1);salvar();desenhar();});
+      ligarBusca($('e_busca'),$('e_sug'),false,p=>linha(p.id,''));
+      $('e_data').onchange=()=>{R.data=val('e_data')||hoje();salvar();};$('e_obs').oninput=()=>{R.obs=$('e_obs').value;salvar();};
+    }
+    if(R.aba==='desp'){
+      M.querySelectorAll('[data-d]').forEach(inp=>inp.addEventListener('input',()=>{R.desp[inp.dataset.d]=inp.value;salvar();atualiza();}));
+      M.querySelectorAll('[data-dt]').forEach(b=>b.onclick=()=>{R.desp.tipo=b.dataset.dt;salvar();desenhar();});
+    }
+    $('cx').onclick=fechar;if($('limpa'))$('limpa').onclick=()=>{if(!confirm('Descartar todo o rascunho desta entrada?'))return;e04Gravar('e04_rasc_ent',null);fechar();e04Entrada();};
+    $('rev').onclick=()=>{const err=M.querySelector('.erro:not(#e_dErr)'),C2=e04Calcular(R.itens,R.desp);
+      if(!R.itens.length){err.textContent='Adicione pelo menos um produto.';return;}
+      const k=C2.L.findIndex(l=>!l.ok);if(k>=0){R.aba='merc';salvar();desenhar();$('modal').querySelector('.erro:not(#e_dErr)').textContent='Informe quantidade e preço de compra de "'+produto(R.itens[k].pid).nome+'".';return;}
+      if(C2.erro){R.aba='desp';salvar();desenhar();return;}
+      R.revisar=true;salvar();desenhar();};
   }
   desenhar();
 }
-
-// ---------- DESPACHO ----------
 function e04Despacho(){
   const R=e04Ler('e04_rasc_desp',null)||{idem:crypto.randomUUID(),data:hoje(),obs:'',destino_tipo:'',destino_nome:'',destino_local:'',destino_unidade:'',transportadora:'',itens:[],vols:[],revisar:false};
   const arqs={};// arquivos das etiquetas (não ficam no rascunho)
@@ -1349,8 +1412,10 @@ function e04VerMov(mid){
   ${m.tipo==='despacho'?`<div class="duas"><div class="total"><b>Para onde foi</b><br>${esc(TIPOS_DEST[m.destino_tipo]||'')}${m.destino_tipo?' · ':''}<b>${esc(m.destino_nome||'')}</b><br>${esc(m.destino_local||'')}${m.destino_unidade?'<br>Unidade: <b>'+esc(m.destino_unidade)+'</b>':''}</div>
    <div class="total"><b>Transportadora:</b> ${esc(m.transportadora||'')}<br><b>Etiquetas:</b><br>${vs.map(v=>`Vol. ${v.ordem}: <span class="codigo">${esc(v.etiqueta)}</span>${v.anexo_caminho?` <button class="link" data-vanx="${v.id}">📎 ${esc(v.anexo_nome||'anexo')}</button>`:''}`).join('<br>')||'—'}</div></div>`:''}
   <h3>${m.tipo==='entrada'?'O que entrou':'O que saiu'}</h3>
-  <div class="scroll"><table class="planilha"><tr><th>Produto</th><th>SKU</th><th>Código lido</th><th class="n">Qtd</th>${m.tipo==='entrada'?'<th class="n">Custo merc./un.</th><th class="n">Taxa</th><th class="n">Comissão</th><th class="n">Taxa extra</th><th class="n">Custo total</th><th class="n">Final/un.</th>':''}</tr>
-  ${its.map(i=>{const p=produto(i.produto_id);return `<tr><td style="white-space:normal">${esc(p.nome)}</td><td>${esc(p.sku||'')}</td><td class="codigo">${esc(i.codigo_lido||'')}</td><td class="n"><b>${un(i.qtd)}</b></td>${m.tipo==='entrada'?`<td class="n">${brl(i.custo_unit,2)}</td><td class="n">${brl(i.taxa)}</td><td class="n">${brl(i.comissao)}</td><td class="n">${brl(i.taxa_extra)}</td><td class="n">${brl(i.custo_total)}</td><td class="n">${brl(i.custo_final_unit,2)}</td>`:''}</tr>`;}).join('')}</table></div>
+  <div class="scroll"><table class="planilha"><tr><th>Produto</th><th>SKU</th><th>Código lido</th><th class="n">Qtd</th>${m.tipo==='entrada'?'<th class="n">Preço compra/un.</th><th class="n">Subtotal</th><th class="n">Acerto</th><th class="n">Transporte</th><th class="n">Demais despesas</th><th class="n">Custo total</th><th class="n">Custo/un.</th>':''}</tr>
+  ${its.map(i=>{const p=produto(i.produto_id);return `<tr><td style="white-space:normal">${esc(p.nome)}</td><td>${esc(p.sku||'')}</td><td class="codigo">${esc(i.codigo_lido||'')}</td><td class="n"><b>${un(i.qtd)}</b></td>${m.tipo==='entrada'?`<td class="n">${brl(i.custo_unit,2)}</td><td class="n">${brl(i.subtotal??i.qtd*i.custo_unit)}</td><td class="n">${brl(i.acerto)}</td><td class="n">${brl(i.frete)}</td><td class="n">${brl(i.despesas??((+i.taxa||0)+(+i.comissao||0)+(+i.taxa_extra||0)))}</td><td class="n"><b>${brl(i.custo_total)}</b></td><td class="n"><b>${brl(i.custo_final_unit,2)}</b></td>`:''}</tr>`;}).join('')}
+  ${m.tipo==='entrada'?`<tr><td colspan="3"><b>Pedido</b></td><td class="n"><b>${un(its.reduce((a,i)=>a+i.qtd,0))}</b></td><td></td><td class="n"><b>${brl(m.valor_mercadorias)}</b></td><td class="n"><b>${brl(m.valor_acerto)}</b></td><td class="n"><b>${brl(m.frete_total)}</b></td><td class="n"><b>${brl((+m.taxa_total||0)+(+m.comissao_total||0)+(+m.taxa_extra_total||0))}</b></td><td class="n"><b>${brl(m.custo_pedido)}</b></td><td></td></tr>`:''}</table></div>
+  ${m.tipo==='entrada'?`<div class="meta">Acerto ${dec(m.acerto_pct)}% ${m.acerto_tipo==='desconto'?'de desconto':'de acréscimo'} · transporte ${brl(m.frete_total)} · taxa ${brl(m.taxa_total)} · comissão ${brl(m.comissao_total)} · taxa extra ${brl(m.taxa_extra_total)} — rateados pelo subtotal de cada produto.</div>`:''}
   <h3>Histórico deste lançamento</h3>
   <div class="tab">${hs.map(x=>{const s=x.solicitacao_id?E04.sols.find(y=>y.id===x.solicitacao_id):null;
     const qa=(x.antes&&x.antes.itens)||[],qd=(x.depois&&x.depois.itens)||[];
@@ -1367,13 +1432,16 @@ function e04Solicitar(mid){
   const desenhar=()=>{
     abrir(`<h2>Solicitar alteração · ${m.tipo==='entrada'?'Entrada':'Despacho'} #${m.id}</h2><div class="sub">Nada muda até o Iago aprovar. Altere só os campos que estão errados.</div>
     <div class="seg" style="margin-bottom:10px"><button class="${tipo==='correcao'?'on':''}" data-tp="correcao">Corrigir dados</button><button class="${tipo==='estorno'?'on':''}" data-tp="estorno">Estornar movimentação inteira</button></div>
-    ${tipo==='correcao'?`<div class="scroll"><table class="planilha nt"><tr><th>Produto</th><th class="n">Qtd</th>${m.tipo==='entrada'?'<th class="n">Custo merc./un.</th><th class="n">Taxa</th><th class="n">Comissão</th><th class="n">Taxa extra</th>':''}</tr>
+    ${tipo==='correcao'?`<div class="scroll"><table class="planilha nt"><tr><th>Produto</th><th class="n">Qtd</th>${m.tipo==='entrada'?'<th class="n">Preço compra/un.</th>':''}</tr>
       ${its.map(i=>`<tr><td style="white-space:normal">${esc(produto(i.produto_id).nome)}</td><td class="n"><input data-si="${i.id}" data-f="qtd" value="${i.qtd}" inputmode="numeric" style="width:70px;text-align:right"></td>
-      ${m.tipo==='entrada'?['custo_unit','taxa','comissao','taxa_extra'].map(f=>`<td class="n"><input data-si="${i.id}" data-f="${f}" value="${dec(i[f])}" inputmode="decimal" style="width:86px;text-align:right"></td>`).join(''):''}</tr>`).join('')}</table></div>
+      ${m.tipo==='entrada'?['custo_unit'].map(f=>`<td class="n"><input data-si="${i.id}" data-f="${f}" value="${dec(i[f])}" inputmode="decimal" style="width:86px;text-align:right"></td>`).join(''):''}</tr>`).join('')}</table></div>
       ${m.tipo==='despacho'?`<div class="tres"><div class="campo"><label>Tipo de destino</label><select data-sc="destino_tipo"><option value="">—</option>${Object.entries(TIPOS_DEST).map(([k,l])=>`<option value="${k}" ${m.destino_tipo===k?'selected':''}>${l}</option>`).join('')}</select></div>
        <div class="campo"><label>Quem recebe</label><input data-sc="destino_nome" value="${esc(m.destino_nome||'')}"></div><div class="campo"><label>Unidade</label><input data-sc="destino_unidade" value="${esc(m.destino_unidade||'')}"></div></div>
        <div class="duas"><div class="campo"><label>Local de entrega</label><input data-sc="destino_local" value="${esc(m.destino_local||'')}"></div><div class="campo"><label>Transportadora</label><input data-sc="transportadora" value="${esc(m.transportadora||'')}"></div></div>
        ${vs.map(v=>`<div class="campo"><label>Etiqueta do volume ${v.ordem}</label><input data-sv="${v.id}" value="${esc(v.etiqueta)}" class="codigo"></div>`).join('')}`:''}
+      ${m.tipo==='entrada'?`<div class="duas"><div class="campo"><label>Percentual do acerto (%)</label><input data-sd="acerto_pct" value="${dec(m.acerto_pct)}" inputmode="decimal"></div><div class="campo"><label>O acerto é</label><select data-sd="acerto_tipo"><option value="acrescimo" ${m.acerto_tipo!=='desconto'?'selected':''}>Acréscimo</option><option value="desconto" ${m.acerto_tipo==='desconto'?'selected':''}>Desconto</option></select></div></div>
+       <div class="duas"><div class="campo"><label>Custo total do transporte (R$)</label><input data-sd="frete" value="${dec(m.frete_total)}" inputmode="decimal"></div><div class="campo"><label>Taxa (R$)</label><input data-sd="taxa" value="${dec(m.taxa_total)}" inputmode="decimal"></div></div>
+       <div class="duas"><div class="campo"><label>Comissão (R$)</label><input data-sd="comissao" value="${dec(m.comissao_total)}" inputmode="decimal"></div><div class="campo"><label>Taxa extra (R$)</label><input data-sd="taxa_extra" value="${dec(m.taxa_extra_total)}" inputmode="decimal"></div></div>`:''}
       <div class="duas"><div class="campo"><label>Data</label><input data-sc="data" type="date" value="${esc(m.data)}"></div><div class="campo"><label>Observação</label><input data-sc="obs" value="${esc(m.obs||'')}"></div></div>`
     :`<div class="total">O estorno desfaz a movimentação inteira: ${its.map(i=>esc(produto(i.produto_id).nome)+' '+(m.tipo==='entrada'?'−':'+')+un(i.qtd)+' un.').join(' · ')} no saldo do Estoque 04, depois da aprovação.</div>`}
     <div class="campo"><label>Justificativa *</label><textarea id="s_just" placeholder="Explique o que está errado e por quê"></textarea></div>
@@ -1384,6 +1452,8 @@ function e04Solicitar(mid){
     const proposta=()=>{const p={};const itens=[];
       its.forEach(i=>{const x={id:i.id};M.querySelectorAll(`[data-si="${i.id}"]`).forEach(inp=>{const f=inp.dataset.f;if(f==='qtd'){const q=num(inp.value);if(q!==i.qtd)x.qtd=q;}else{const v=e04Num(inp.value);if(v!==null&&!Number.isNaN(v)&&Math.abs(v-(+i[f]||0))>0.00001)x[f]=v;}});if(Object.keys(x).length>1)itens.push(x);});
       if(itens.length)p.itens=itens;const cab={};M.querySelectorAll('[data-sc]').forEach(inp=>{const k=inp.dataset.sc;if(String(inp.value)!==String(m[k]??''))cab[k]=inp.value;});if(Object.keys(cab).length)p.cabecalho=cab;
+      const atualD={acerto_pct:m.acerto_pct,acerto_tipo:m.acerto_tipo,frete:m.frete_total,taxa:m.taxa_total,comissao:m.comissao_total,taxa_extra:m.taxa_extra_total},dsp={};
+      M.querySelectorAll('[data-sd]').forEach(inp=>{const k=inp.dataset.sd;if(k==='acerto_tipo'){if(inp.value!==atualD[k])dsp[k]=inp.value;}else{const v=e04Num(inp.value)??0;if(!Number.isNaN(v)&&Math.abs(v-(+atualD[k]||0))>0.00001)dsp[k]=v;}});if(Object.keys(dsp).length)p.despesas=dsp;
       const vols=[];M.querySelectorAll('[data-sv]').forEach(inp=>{const v=vs.find(x=>x.id===+inp.dataset.sv);if(limpaCod(inp.value)!==v.etiqueta)vols.push({id:v.id,etiqueta:limpaCod(inp.value)});});if(vols.length)p.volumes=vols;return p;};
     const prev=()=>{if(tipo!=='correcao'||!$('s_prev'))return;const p=proposta(),l=(p.itens||[]).filter(x=>x.qtd!=null).map(x=>{const i=its.find(y=>y.id===x.id),d=(x.qtd-i.qtd)*(m.tipo==='entrada'?1:-1),s=e04Saldo(i.produto_id);return `${produto(i.produto_id).nome}: saldo ${un(s)} → ${un(s+d)} un. (após aprovação)`;});$('s_prev').textContent=l.join(' · ');};
     M.querySelectorAll('input,select').forEach(i=>i.addEventListener('input',prev));
