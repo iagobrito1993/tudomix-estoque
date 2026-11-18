@@ -150,6 +150,9 @@ input:focus,select:focus,textarea:focus{outline:2px solid #9a9a95}
 .ia-lendo{background:#111;color:#fff;border-radius:10px;padding:10px 12px;margin-bottom:10px;font-size:14px;animation:pisca 1.4s infinite}@keyframes pisca{50%{opacity:.75}}
 .ia-ok{background:#ecfdf5;border:1px solid #a7f3d0;border-radius:10px;padding:8px 12px;margin-bottom:10px;font-size:14px}
 .ia-av{background:#fffbeb;border:1px solid #fde68a;color:#92400e;border-radius:10px;padding:8px 12px;margin-bottom:10px;font-size:13px}
+.e04-topo{background:#111;color:#fff;border-radius:12px;padding:10px 14px;margin:6px 0 4px;font-size:14px}
+.tag-un,.tag-lanc{font-size:11px;font-weight:700;padding:1px 7px;border-radius:99px;margin-left:4px}.tag-un{background:#dbeafe;color:#1e40af}.tag-lanc{background:#fef3c7;color:#92400e}
+.calc{background:#f3f1ec;border-radius:10px;padding:10px 12px;font-size:14px;margin:8px 0;line-height:1.6}.calc-l{padding-left:12px}
 .ccs{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}.ccs button{border-radius:99px;padding:4px 10px;font-size:12px}.ccs button.on{background:var(--pri);color:#fff;border-color:var(--pri)}
 </style>
 </head>
@@ -307,6 +310,7 @@ async function carregar(){
       vc?tudo(()=>sb.from('contas_pagar').select('*').order('vencimento')).catch(e=>{console.error(e);return [];}):Promise.resolve([]),
       tudo(()=>sb.from('produto_fornecedor').select('*')).catch(()=>[])]);
     D.produtos=prods;D.contas=contas;D.entradas=ents;D.saidas=sais;D.perfis=perfis;D.ajustes=ajs;D.notas=nts;D.cp=cps;D.pf=pfs;
+    try{await carregarE04();}catch(e){console.error(e);E04={pode:false,dono:false,saldos:[],entradas:[],resp:[],acesso:null};}
     if(ehAdmin()){const x=await sb.from('acessos').select('*').order('id',{ascending:false}).limit(800);D.acessos=x.data||[];}
   }catch(e){console.error(e);toast('Não foi possível atualizar os dados.');}
   carregando=false;render();
@@ -317,6 +321,7 @@ setInterval(()=>{if(perfil&&document.visibilityState==='visible')sb.rpc('pulso')
 // ---------- tela principal ----------
 function abasDoPapel(){
   const a=[['estoque','Estoque'],['notas','Notas'],['entradas','Entradas'],['saidas','Saídas']];if(verCusto())a.push(['pagar','Contas a pagar']);a.push(['relatorio','Resumo por conta']);
+  if(E04.pode)a.splice(1,0,['e04','🔒 Estoque 04']);
   if(ehAdmin()){a.push(['contas','Contas']);a.push(['usuarios','Usuários']);a.push(['acessos','Acessos']);}
   return a;
 }
@@ -324,7 +329,7 @@ function render(){
   if(!perfil||!perfil.papel)return;
   if(perfil.papel==='cliente')return renderCliente();
   const abas=abasDoPapel();if(!abas.find(x=>x[0]===aba))aba=abas[0][0];
-  const conteudo={estoque:abaEstoque,notas:abaNotas,pagar:abaPagar,saidas:abaSaidas,entradas:abaEntradas,relatorio:abaRelatorio,contas:abaContas,usuarios:abaUsuarios,acessos:abaAcessos}[aba]();
+  const conteudo={estoque:abaEstoque,e04:abaE04,notas:abaNotas,pagar:abaPagar,saidas:abaSaidas,entradas:abaEntradas,relatorio:abaRelatorio,contas:abaContas,usuarios:abaUsuarios,acessos:abaAcessos}[aba]();
   const ativo=document.activeElement&&document.activeElement.id==='busca';const pos=ativo?document.activeElement.selectionStart:0;
   $('app').innerHTML=`<div class="topo"><div class="wrap"><div class="marca">${LOGO}<div>Estoque<small>Notas · Entradas · Saídas · Contas a pagar</small></div></div>
     <div class="quem"><span>${esc(perfil.nome||perfil.email)}</span><span class="badge b-pap">${PAPEIS[perfil.papel]}</span>
@@ -596,7 +601,7 @@ $('app').addEventListener('click',async e=>{
     try{await rpc('definir_contas_cliente',{p_user:uid,p_contas:cs});await carregar();}catch(err){toast(msgErro(err));}return;}
   if(t.dataset.prod){modalProduto(+t.dataset.prod);return;}
   if(t.dataset.sai){modalDetalheSaida(+t.dataset.sai);return;}
-  if(t.dataset.aba){aba=t.dataset.aba;busca='';limite=150;log('aba',t.textContent.trim());render();return;}
+  if(t.dataset.aba){aba=t.dataset.aba;busca='';limite=150;if(aba!=='e04')log('aba',t.textContent.trim());render();return;}
   if(t.dataset.fe){filtroEst=t.dataset.fe;limite=150;render();return;}
   if(t.dataset.togconta){const c=conta(+t.dataset.togconta);try{await rpc('salvar_conta',{p_id:c.id,p_nome:c.nome,p_ativa:!c.ativa});await carregar();}catch(err){toast(msgErro(err));}return;}
   if(t.dataset.renconta){const c=conta(+t.dataset.renconta);abrir(`<h2>Renomear conta</h2><div class="campo"><label>Nome</label><input id="rc" value="${esc(c.nome)}"></div><div class="erro"></div><div class="rodape"><button id="cx">Voltar</button><button class="primary" id="ok">Salvar</button></div>`);
@@ -608,6 +613,11 @@ $('app').addEventListener('click',async e=>{
   if(a==='saida')modalSaida();
   if(a==='mais'){limite+=300;render();}
   if(a==='nota')modalNota();
+  if(a==='e04novo'&&E04.pode)modalE04();
+  if(a==='e04acesso'&&E04.dono){t.disabled=true;const {error}=await sb.rpc('e04_definir_estoquista',{p_user:val('e04_est')||null});t.disabled=false;if(error)toast(msgErro(error));else{await carregarE04();render();toast('Acesso do Estoque 04 atualizado.');}}
+  if(a==='e04csv'&&E04.pode){const L=[['Produto','SKU','Saldo Estoque 04','Custo final médio/un.','Valor']];E04.saldos.filter(x=>x.qtd>0).forEach(x=>{const p=produto(x.produto_id);L.push([p.nome,p.sku||'',x.qtd,dec(x.custo_medio),dec(x.qtd*x.custo_medio)]);});
+    L.push([]);L.push(['Data','Responsável','Produto','SKU','Qtd','Custo merc./un.','Taxa (lanç.)','Comissão (lanç.)','Taxa extra (lanç.)','Custo total','Custo final/un.']);
+    E04.entradas.forEach(e=>{const p=produto(e.produto_id);L.push([fd(e.data),e04Resp(e.criado_por),p.nome,p.sku||'',e.qtd,dec(e.custo_unit),dec(e.taxa),dec(e.comissao),dec(e.taxa_extra),dec(e.custo_total),dec(e.custo_final_unit)]);});baixarCSV('estoque04_'+hoje()+'.csv',L);}
   if(a==='novacp')modalConta(null);
   if(a==='cplimpa'){cpF.de='';cpF.ate='';render();}
   if(a==='clcsv')csvCliente();
@@ -615,7 +625,7 @@ $('app').addEventListener('click',async e=>{
   if(a==='estcsv'){const vc=verCusto();const L=[['Produto','SKU','EAN','Marca','Estoque'].concat(vc?['Custo médio','Valor em estoque']:[])];D.produtos.filter(p=>p.ativo!==false).forEach(p=>L.push([p.nome,p.sku||'',p.ean||'',p.marca||'',p.estoque].concat(vc?[dec(custo(p)),dec(custo(p)*p.estoque)]:[])));baixarCSV('estoque_tudomix_'+hoje()+'.csv',L);}
   if(a==='novaconta'){t.disabled=true;try{await rpc('salvar_conta',{p_id:null,p_nome:val('c_nova'),p_ativa:true});await carregar();toast('Conta adicionada.');}catch(err){toast(msgErro(err));t.disabled=false;}}
 });
-$('app').addEventListener('input',e=>{if(e.target.id==='busca'){busca=e.target.value;limite=150;render();}if(e.target.id==='cl_busca'){CL.busca=e.target.value;renderCliente();}});
+$('app').addEventListener('input',e=>{if(e.target.id==='busca'){busca=e.target.value;limite=150;render();}if(e.target.id==='cl_busca'){CL.busca=e.target.value;renderCliente();}if(e.target.id==='e04_busca'){e04Busca=e.target.value;const p=e.target.selectionStart;render();const b=$('e04_busca');if(b){b.focus();b.setSelectionRange(p,p);}}});
 $('app').addEventListener('change',async e=>{const id=e.target.id;
   if(id==='filtroAc'){filtroAc=e.target.value;render();return;}
   if(id==='cp_st'){cpF.st=e.target.value;render();return;}
@@ -1061,6 +1071,71 @@ function csvCliente(){
   const L=[['Envio','Data','Conta','Modalidade','Produto','SKU','EAN','Quantidade','Observação']];
   CL.envios.filter(s=>!CL.conta||String(s.conta_id)===CL.conta).forEach(s=>s.itens.forEach(i=>L.push([s.id,fd(s.data),s.conta,MODS[s.modalidade]||s.modalidade,i.nome,i.sku||'',i.ean||'',i.qtd,s.obs||''])));
   baixarCSV('envios_'+CL.de+'_a_'+CL.ate+'.csv',L);
+}
+
+
+// ================= ESTOQUE 04 (separado; só Iago e o estoquista designado — o servidor bloqueia o resto) =================
+let E04={pode:false,dono:false,saldos:[],entradas:[],resp:[],acesso:null},e04Busca='';
+async function carregarE04(){
+  E04={pode:false,dono:false,saldos:[],entradas:[],resp:[],acesso:null};
+  const {data:pode}=await sb.rpc('e04_pode');if(!pode)return;
+  const [dono,s,e,r,a]=await Promise.all([sb.rpc('e04_dono'),tudo(()=>sb.from('e04_saldos').select('*').order('produto_id')),
+    tudo(()=>sb.from('e04_entradas').select('*').order('id',{ascending:false})),sb.rpc('e04_responsaveis'),sb.from('e04_acesso').select('user_id')]);
+  E04={pode:true,dono:!!dono.data,saldos:s,entradas:e,resp:r.data||[],acesso:(a.data&&a.data[0]?a.data[0].user_id:null)};
+}
+function e04Resp(uid){const r=E04.resp.find(x=>x.id===uid)||D.perfis.find(x=>x.user_id===uid);return r?(r.nome||r.email):'—';}
+function abaE04(){
+  const q=norm(e04Busca.trim()),bt=(...c)=>!q||q.split(/\s+/).every(w=>norm(c.join(' ')).includes(w));
+  const sal=E04.saldos.filter(s=>s.qtd>0).map(s=>({...s,p:produto(s.produto_id)})).filter(s=>bt(s.p.nome,s.p.sku,s.p.ean)).sort((a,b)=>a.p.nome.localeCompare(b.p.nome));
+  const tot=E04.saldos.reduce((a,s)=>a+s.qtd,0),val=E04.saldos.reduce((a,s)=>a+s.qtd*(+s.custo_medio||0),0);
+  const ent=E04.entradas.filter(e=>{const p=produto(e.produto_id);return bt(p.nome,p.sku,e04Resp(e.criado_por),e.obs);});
+  const est=E04.acesso?(D.perfis.find(p=>p.user_id===E04.acesso)||{}):null;
+  return `<div class="e04-topo"><b>🔒 Estoque 04</b> · saldo separado: as quantidades e custos daqui <b>não entram</b> no Estoque geral, nos totais nem nas exportações das outras abas.
+   Acesso: <b>Iago</b>${est?` e <b>${esc(est.nome||est.email||'estoquista')}</b>`:' (nenhum estoquista designado)'}.</div>
+  <div class="barra"><input id="e04_busca" type="search" placeholder="Buscar produto ou SKU no Estoque 04…" value="${esc(e04Busca)}"><button data-act="e04csv">Exportar</button><button class="primary" data-act="e04novo">+ Lançar mercadoria</button></div>
+  <div class="resumo"><div class="kpi"><div class="n">${un(E04.saldos.filter(s=>s.qtd>0).length)}</div><div class="l">Produtos com saldo</div></div><div class="kpi"><div class="n">${un(tot)}</div><div class="l">Unidades no Estoque 04</div></div><div class="kpi"><div class="n">${brl(val)}</div><div class="l">Valor a custo final médio</div></div><div class="kpi"><div class="n">${un(E04.entradas.length)}</div><div class="l">Lançamentos</div></div></div>
+  <h3>Saldo atual por produto</h3>
+  ${sal.length?`<div class="scroll"><table class="planilha"><tr><th>Produto</th><th>SKU</th><th class="n">Saldo</th><th class="n">Custo final médio / un.</th><th class="n">Valor</th></tr>
+   ${sal.map(s=>`<tr><td>${esc(s.p.nome)}</td><td>${esc(s.p.sku||'')}</td><td class="n"><b>${un(s.qtd)}</b></td><td class="n">${brl(s.custo_medio,2)}</td><td class="n">${brl(s.qtd*s.custo_medio)}</td></tr>`).join('')}</table></div>`:'<div class="vazio">Nenhum saldo no Estoque 04 ainda.</div>'}
+  <h3>Histórico de entradas</h3>
+  ${ent.length?`<div class="scroll"><table class="planilha"><tr><th>Data</th><th>Responsável</th><th>Produto</th><th class="n">Qtd</th><th class="n">Custo merc. / un.</th><th class="n">Taxa (lanç.)</th><th class="n">Comissão (lanç.)</th><th class="n">Taxa extra (lanç.)</th><th class="n">Custo total</th><th class="n">Custo final / un.</th></tr>
+   ${ent.slice(0,limite).map(e=>{const p=produto(e.produto_id);return `<tr><td>${fd(e.data)}<div class="meta" style="margin:0">${fts(e.criado_em)}</div></td><td>${esc(e04Resp(e.criado_por))}</td><td style="white-space:normal">${esc(p.nome)}<div class="meta" style="margin:0">${esc(p.sku||'')}${e.obs?' · '+esc(e.obs):''}</div></td><td class="n">${un(e.qtd)}</td><td class="n">${brl(e.custo_unit,2)}</td><td class="n">${brl(e.taxa)}</td><td class="n">${brl(e.comissao)}</td><td class="n">${brl(e.taxa_extra)}</td><td class="n"><b>${brl(e.custo_total)}</b></td><td class="n"><b>${brl(e.custo_final_unit,2)}</b></td></tr>`;}).join('')}</table></div>`:'<div class="vazio">Nenhuma entrada lançada.</div>'}
+  ${E04.dono?`<h3>Quem acessa o Estoque 04</h3><div class="total">Só você (Iago) e <b>um</b> estoquista escolhido aqui. Administradores, sócios e outros estoquistas não veem esta aba nem os dados.</div>
+   <div class="barra"><select id="e04_est" style="max-width:340px"><option value="">Nenhum estoquista</option>${D.perfis.filter(p=>p.papel&&p.papel!=='cliente'&&p.user_id!==perfil.user_id).map(p=>`<option value="${p.user_id}" ${E04.acesso===p.user_id?'selected':''}>${esc(p.nome||p.email)} — ${PAPEIS[p.papel]||p.papel}</option>`).join('')}</select><button data-act="e04acesso">Salvar acesso</button></div>`:''}`;
+}
+function e04Num(v){if(String(v??'').trim()==='')return null;const n=dinheiro(v);return isNaN(n)?NaN:n;}
+function modalE04(){
+  let sel=null;
+  abrir(`<h2>Estoque 04 · Lançar mercadoria</h2><div class="sub">Entra só no saldo do Estoque 04. O Estoque geral não muda.</div>
+  <div class="campo"><label>Produto (nome ou SKU)</label><input id="f_busca" placeholder="Nome, SKU ou EAN" autocomplete="off"><div id="f_sug" class="sugs hidden"></div></div>
+  <div id="f_sel" class="total hidden"></div>
+  <div class="duas"><div class="campo"><label>Quantidade recebida</label><input id="f_qtd" inputmode="numeric"></div><div class="campo"><label>Custo da mercadoria (R$) <span class="tag-un">por unidade</span></label><input id="f_cu" inputmode="decimal" placeholder="0,00"></div></div>
+  <div class="tres"><div class="campo"><label>Taxa (R$) <span class="tag-lanc">pelo lançamento</span></label><input id="f_tx" inputmode="decimal" placeholder="0,00"></div>
+   <div class="campo"><label>Comissão (R$) <span class="tag-lanc">pelo lançamento</span></label><input id="f_co" inputmode="decimal" placeholder="0,00"></div>
+   <div class="campo"><label>Taxa extra (R$) <span class="tag-lanc">pelo lançamento</span> <span style="font-weight:400;color:var(--mut)">opcional</span></label><input id="f_te" inputmode="decimal" placeholder="em branco = 0,00"></div></div>
+  <div class="duas"><div class="campo"><label>Data</label><input id="f_data" type="date" value="${hoje()}"></div><div class="campo"><label>Observação</label><input id="f_obs"></div></div>
+  <div class="calc" id="f_calc"></div>
+  <div class="erro"></div>
+  <div class="rodape"><button id="cx">Cancelar</button><button class="primary" id="ok">Confirmar entrada</button></div>`);
+  const ler=()=>({q:num(val('f_qtd')),cu:e04Num(val('f_cu')),tx:e04Num(val('f_tx')),co:e04Num(val('f_co')),te:e04Num(val('f_te'))});
+  const calc=()=>{const v=ler(),el=$('f_calc');
+    $('f_sel').classList.toggle('hidden',!sel);if(sel){const s=E04.saldos.find(x=>x.produto_id===sel.id);$('f_sel').innerHTML=`<b>${esc(sel.nome)}</b><br>${esc(sel.sku||'')} · Saldo no Estoque 04: <b>${un(s?s.qtd:0)} un.</b>`;}
+    if(!v.q||v.cu===null||[v.cu,v.tx,v.co,v.te].some(x=>Number.isNaN(x))){el.innerHTML='<span class="meta">Preencha a quantidade e o custo da mercadoria para ver o cálculo.</span>';return null;}
+    const tx=v.tx||0,co=v.co||0,te=v.te||0,merc=v.q*v.cu,tot=merc+tx+co+te,fin=tot/v.q;
+    el.innerHTML=`<div><b>Custo total do lançamento</b> = (quantidade × custo unitário da mercadoria) + taxa + comissão + taxa extra</div>
+     <div class="calc-l">= (${un(v.q)} × ${brl(v.cu,2)}) + ${brl(tx)} + ${brl(co)} + ${brl(te)}${v.te===null?' <span class="meta">(taxa extra em branco)</span>':''}</div>
+     <div class="calc-l">= ${brl(merc)} + ${brl(tx+co+te)} = <b>${brl(tot)}</b></div>
+     <div style="margin-top:6px"><b>Custo final por unidade</b> = custo total ÷ quantidade recebida = ${brl(tot)} ÷ ${un(v.q)} = <b>${brl(fin,2)}</b></div>
+     <div class="meta" style="margin-top:4px">Saldo do Estoque 04 após a entrada: ${un((E04.saldos.find(x=>sel&&x.produto_id===sel.id)||{qtd:0}).qtd+v.q)} un.</div>`;
+    return {...v,tot,fin};};
+  ligarBusca($('f_busca'),$('f_sug'),false,p=>{sel=p;$('f_busca').value=p.nome;calc();$('f_qtd').focus();});
+  $('f_busca').addEventListener('input',()=>{if(sel&&$('f_busca').value!==sel.nome){sel=null;calc();}});
+  ['f_qtd','f_cu','f_tx','f_co','f_te'].forEach(id=>$(id).addEventListener('input',calc));calc();
+  $('cx').onclick=fechar;
+  $('ok').onclick=()=>{const err=$('modal').querySelector('.erro');err.textContent='';const v=calc();
+    if(!sel){err.textContent='Escolha o produto.';return;}if(!v){err.textContent='Confira a quantidade e os valores.';return;}
+    rodar($('ok'),async()=>{const {data,error}=await sb.rpc('e04_lancar',{p_produto:sel.id,p_qtd:v.q,p_custo_unit:v.cu,p_taxa:v.tx||0,p_comissao:v.co||0,p_taxa_extra:v.te||0,p_data:val('f_data')||hoje(),p_obs:val('f_obs')});
+      if(error)throw error;await carregarE04();fechar();render();toast(`Entrada no Estoque 04: ${brl(data.custo_total)} · ${brl(data.custo_final_unit,2)}/un. · saldo ${un(data.saldo)} un.`);});};
 }
 
 iniciar();
