@@ -195,7 +195,7 @@ const SUPABASE_URL='https://rxqlkfzsvoqydqqzffih.supabase.co';
 const SUPABASE_KEY='sb_publishable__IZIszN0QheZChaDwqVA8A_vlQnP9tw';
 const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
 
-const PAPEIS={admin:'Administrador',estoque:'Estoque',socio:'Sócio (só visualização)',cliente:'Cliente (vê só os envios dele)',e04:'Estoque 04 (só o Estoque 04)'};
+const PAPEIS={admin:'Administrador',estoque:'Estoque',socio:'Sócio (só visualização)',cliente:'Cliente (vê só os envios dele)',e04:'Estoque 04 (só o Estoque 04)',e19:'Estoque 19 (só o Estoque 19)'};
 const MODS={flex:'Flex',full:'Full',agencia:'Agência'};
 let sessao=null,perfil=null,aba=null,busca='',filtroEst='com',filtroSai={conta:'',mod:'',status:'ativa'},D={produtos:[],contas:[],entradas:[],saidas:[],perfis:[],ajustes:[],notas:[],cp:[],pf:[]},modoLogin='entrar',carregando=false,limite=150;
 
@@ -319,20 +319,27 @@ async function carregarPerfil(){
   perfil=data;if(!perfil||!perfil.papel)return telaPendente();
   if(perfil.papel==='cliente'){if(!window._logou){window._logou=1;log('entrou','Entrou no sistema (cliente)');}return carregarCliente();}
   if(perfil.papel==='e04')aba='e04';
+  if(perfil.papel==='e19'&&!/^e19(meu|sol)$/.test(aba||''))aba='e19sol';
   if(!aba)aba='estoque';
   if(!window._logou){window._logou=1;log('entrou','Entrou no sistema');}
   await carregar();
+  if(perfil.papel==='e19'&&!(sessao.user.user_metadata||{}).senha_definida)setTimeout(e19DefinirSenha,200);
 }
 
 // ---------- dados ----------
 async function carregar(){
   if(perfil&&perfil.papel==='cliente')return carregarCliente();
   if(carregando)return;carregando=true;
+  if(perfil&&perfil.papel==='e19'){ // conta só do Estoque 19: catálogo sem custo e os pedidos da unidade
+    try{const c=await sb.rpc('e19_catalogo');if(c.error)throw c.error;D.produtos=(c.data||[]).map(p=>({...p,estoque:null}));D.perfis=[];D.contas=[];D.entradas=[];D.saidas=[];D.ajustes=[];D.notas=[];D.cp=[];D.pf=[];
+      E04={pode:false,dono:false,saldos:[],movs:[],itens:[],vols:[],sols:[],hist:[],cods:[],acesso:null};await carregarE19();}catch(e){console.error(e);toast('Não foi possível atualizar os dados.');}
+    carregando=false;render();e19AbrirLink();return;
+  }
   if(perfil&&perfil.papel==='e04'){ // conta só do Estoque 04: não carrega nada do resto do sistema
     try{const [c,pe]=await Promise.all([sb.rpc('e04_catalogo'),sb.rpc('e04_pessoas')]);if(c.error)throw c.error;
       D.produtos=(c.data||[]).map(p=>({...p,estoque:null}));D.perfis=pe.data||[];D.contas=[];D.entradas=[];D.saidas=[];D.ajustes=[];D.notas=[];D.cp=[];D.pf=[];
-      await carregarE04();}catch(e){console.error(e);toast('Não foi possível atualizar os dados.');}
-    carregando=false;render();return;
+      await carregarE04();await carregarE19();}catch(e){console.error(e);toast('Não foi possível atualizar os dados.');}
+    carregando=false;render();e19AbrirLink();return;
   }
   try{
     const vc=verCusto();
@@ -348,18 +355,22 @@ async function carregar(){
       tudo(()=>sb.from('produto_fornecedor').select('*')).catch(()=>[])]);
     D.produtos=prods;D.contas=contas;D.entradas=ents;D.saidas=sais;D.perfis=perfis;D.ajustes=ajs;D.notas=nts;D.cp=cps;D.pf=pfs;
     try{await carregarE04();}catch(e){console.error(e);E04={pode:false,dono:false,saldos:[],movs:[],itens:[],vols:[],sols:[],hist:[],cods:[],acesso:null};}
+    try{await carregarE19();}catch(e){console.error(e);}
     if(ehAdmin()){const x=await sb.from('acessos').select('*').order('id',{ascending:false}).limit(800);D.acessos=x.data||[];}
   }catch(e){console.error(e);toast('Não foi possível atualizar os dados.');}
-  carregando=false;render();
+  carregando=false;render();e19AbrirLink();
 }
+window.addEventListener('hashchange',()=>{e19LinkFeito=false;if(perfil&&perfil.papel)e19AbrirLink();});
 setInterval(()=>{if(perfil&&perfil.papel&&$('ov').classList.contains('hidden')&&document.visibilityState==='visible')carregar();},90000);
 setInterval(()=>{if(perfil&&document.visibilityState==='visible')sb.rpc('pulso').then(()=>{},()=>{});},50000);
 
 // ---------- tela principal ----------
 function abasDoPapel(){
+  if(perfil.papel==='e19')return [['e19meu','Meu estoque'],['e19sol','Solicitações de compra']];
   if(perfil.papel==='e04')return E04.pode?[['e04','🔒 Estoque 04']]:[['e04','Estoque 04']];
   const a=[['estoque','Estoque'],['notas','Notas'],['entradas','Entradas'],['saidas','Saídas']];if(verCusto())a.push(['pagar','Contas a pagar']);a.push(['relatorio','Resumo por conta']);
   if(E04.pode)a.splice(1,0,['e04','🔒 Estoque 04']);
+  if(E04.dono)a.splice(2,0,['e19adm','🏬 Estoque 19']);
   if(ehAdmin()){a.push(['contas','Contas']);a.push(['usuarios','Usuários']);a.push(['acessos','Acessos']);}
   return a;
 }
@@ -367,9 +378,9 @@ function render(){
   if(!perfil||!perfil.papel)return;
   if(perfil.papel==='cliente')return renderCliente();
   const abas=abasDoPapel();if(!abas.find(x=>x[0]===aba))aba=abas[0][0];
-  const conteudo={estoque:abaEstoque,e04:abaE04,notas:abaNotas,pagar:abaPagar,saidas:abaSaidas,entradas:abaEntradas,relatorio:abaRelatorio,contas:abaContas,usuarios:abaUsuarios,acessos:abaAcessos}[aba]();
+  const conteudo={estoque:abaEstoque,e04:abaE04,notas:abaNotas,pagar:abaPagar,saidas:abaSaidas,entradas:abaEntradas,relatorio:abaRelatorio,contas:abaContas,usuarios:abaUsuarios,acessos:abaAcessos,e19meu:()=>e19PagEstoque(false),e19sol:e19PagSolic,e19adm:abaE19Adm}[aba]();
   const ativo=document.activeElement&&document.activeElement.id==='busca';const pos=ativo?document.activeElement.selectionStart:0;
-  $('app').innerHTML=`<div class="topo"><div class="wrap"><div class="marca">${LOGO}<div>Estoque<small>Notas · Entradas · Saídas · Contas a pagar</small></div></div>
+  $('app').innerHTML=`<div class="topo"><div class="wrap"><div class="marca">${LOGO}<div>${perfil.papel==='e19'?'Estoque 19<small>Meu estoque · Solicitações de compra</small>':'Estoque<small>Notas · Entradas · Saídas · Contas a pagar</small>'}</div></div>
     <div class="quem"><span>${esc(perfil.nome||perfil.email)}</span><span class="badge b-pap">${PAPEIS[perfil.papel]}</span>
     <button class="small" data-act="atualizar">Atualizar</button><button class="small" data-act="sair">Sair</button></div></div></div>
     <div class="wrap"><nav class="abas">${abas.map(([k,l])=>`<button class="${aba===k?'on':''}" data-aba="${k}">${l}</button>`).join('')}</nav>${conteudo}</div>`;
@@ -459,9 +470,9 @@ function abaContas(){
     <div><button class="small" data-renconta="${c.id}">Renomear</button> <button class="small" data-togconta="${c.id}">${c.ativa?'Desativar':'Ativar'}</button></div></div>`).join(''):'<div class="vazio">Cadastre as contas (Mercado Livre, Amazon, Shopee…) para usar nas saídas.</div>'}</div>`;
 }
 function abaUsuarios(){
-  return `<div class="total" style="margin-top:10px">Para dar acesso a alguém: peça para a pessoa abrir este site e tocar em <b>Criar conta</b>. Depois ela aparece aqui e você escolhe o acesso.</div>
+  return `${E04.dono?'<div class="barra" style="margin-top:10px"><button class="primary" data-e19adm="acessos" data-aba="e19adm">Criar acesso ao Estoque 19</button></div>':''}<div class="total" style="margin-top:10px">Para dar acesso a alguém: peça para a pessoa abrir este site e tocar em <b>Criar conta</b>. Depois ela aparece aqui e você escolhe o acesso.</div>
   <div class="lista">${D.perfis.map(p=>`<div class="card"><div><div class="t">${esc(p.nome||'')}</div><div class="meta">${esc(p.email||'')}</div>${p.papel?'':'<div class="warn">Aguardando liberação</div>'}${p.papel==='cliente'?`<div class="meta" style="margin-top:6px">Contas que este cliente vê:</div><div class="ccs">${D.contas.map(c=>`<button class="${(p.contas||[]).includes(c.id)?'on':''}" data-cc="${p.user_id}|${c.id}">${esc(c.nome)}</button>`).join('')||'<span class="meta">Cadastre as contas primeiro.</span>'}</div>`:''}</div>
-    <div><select data-papel="${p.user_id}" style="min-width:150px"><option value="">Sem acesso</option>${Object.entries(PAPEIS).map(([k,l])=>`<option value="${k}" ${p.papel===k?'selected':''}>${l}</option>`).join('')}</select></div></div>`).join('')}</div>
+    <div>${p.papel==='e19'?'<span class="badge b-pap">Estoque 19</span><div class="meta">gerenciado em 🏬 Estoque 19</div>':`<select data-papel="${p.user_id}" style="min-width:150px"><option value="">Sem acesso</option>${Object.entries(PAPEIS).filter(([k])=>k!=='e19').map(([k,l])=>`<option value="${k}" ${p.papel===k?'selected':''}>${l}</option>`).join('')}</select>`}</div></div>`).join('')}</div>
   <div class="meta" style="margin-top:10px"><b>Administrador:</b> vê e faz tudo, inclusive custo, ajustes e contas. <b>Estoque:</b> lança entradas e saídas e anexa fotos e etiquetas, sem ver custo. <b>Sócio:</b> vê tudo, inclusive custo e contas a pagar, e não altera nada. <b>Cliente:</b> vê só os envios (saídas) das contas marcadas para ele, sem custo e sem o resto do estoque. <b>Estoque 04:</b> vê e opera só o Estoque 04 (entradas, despachos e solicitações), sem nenhuma outra aba, custo ou dado do sistema.</div>`;
 }
 let filtroAc='';
@@ -1156,12 +1167,13 @@ function e04MovTexto(m){const its=e04ItensDe(m.id);
 function abaE04(){
   if(!E04.pode)return '<div class="vazio">Seu acesso ao Estoque 04 ainda não foi liberado. Fale com o Iago.</div>';
   const pend=E04.sols.filter(s=>s.status==='pendente').length;
-  const subs=[['saldo','Saldo'],['historico','Histórico'],['alteracoes',(E04.dono?'Alterações pendentes':'Minhas solicitações')+(pend?` (${pend})`:'')]];if(E04.dono)subs.push(['acesso','Acesso']);
+  const p19=E19.ok?e19Pendentes().length:0;
+  const subs=[['saldo','Saldo'],['historico','Histórico'],['alteracoes',(E04.dono?'Alterações pendentes':'Minhas solicitações')+(pend?` (${pend})`:'')],['e19','Compras solicitadas pelo Estoque 19'+(p19?` (${p19})`:'')]];if(E04.dono)subs.push(['acesso','Acesso']);
   const est=E04.acesso?(D.perfis.find(p=>p.user_id===E04.acesso)||{}):null;
   let h=`<div class="e04-topo"><b>🔒 Estoque 04</b> · saldo separado: não entra no Estoque geral, nos totais nem nas exportações das outras abas. Acesso: <b>Iago</b>${est?` e <b>${esc(est.nome||est.email)}</b>`:''}.</div>
   <div class="barra"><button class="primary" data-act="e04ent">📦 Entrada (leitor de código)</button><button class="primary" data-act="e04desp">🚚 Registrar despacho</button><button data-act="e04csv">Exportar</button></div>
   <div class="seg" style="margin:4px 0 10px">${subs.map(([k,l])=>`<button class="${e04Sub===k?'on':''}" data-e04sub="${k}">${l}</button>`).join('')}</div>`;
-  if(e04Sub==='saldo')h+=e04PagSaldo();else if(e04Sub==='historico')h+=e04PagHist();else if(e04Sub==='alteracoes')h+=e04PagAlt();else if(e04Sub==='acesso'&&E04.dono)h+=e04PagAcesso();
+  if(e04Sub==='saldo')h+=e04PagSaldo();else if(e04Sub==='historico')h+=e04PagHist();else if(e04Sub==='alteracoes')h+=e04PagAlt();else if(e04Sub==='acesso'&&E04.dono)h+=e04PagAcesso();else if(e04Sub==='e19')h+=e19Fila();
   return h;
 }
 function e04PagSaldo(){
@@ -1506,6 +1518,403 @@ function e04Decidir(sid,aprovar){
   $('cx').onclick=fechar;
   $('ok').onclick=()=>rodar($('ok'),async()=>{const {error}=await sb.rpc('e04_decidir',{p_sol:sid,p_aprovar:aprovar,p_obs:val('dc_obs')});if(error)throw error;await carregarE04();fechar();render();toast(aprovar?'Alteração aprovada e aplicada.':'Solicitação recusada.');});
 }
+
+
+// ================= ESTOQUE 19 (unidade com login próprio; pede compras ao Estoque 04) =================
+// O servidor valida perfil e unidade em toda consulta, gravação e anexo. O perfil 19 nunca recebe valores.
+const E19_UN={un:'unidade',cx:'caixa',pct:'pacote',fardo:'fardo',dz:'dúzia',kg:'kg',g:'grama',l:'litro',ml:'ml',m:'metro',par:'par',rolo:'rolo',saco:'saco',galao:'galão',frasco:'frasco',lata:'lata'};
+const E19_AB={un:'un.',cx:'cx',pct:'pct',fardo:'fardo',dz:'dz',kg:'kg',g:'g',l:'L',ml:'ml',m:'m',par:'par',rolo:'rolo',saco:'saco',galao:'galão',frasco:'frasco',lata:'lata'};
+const E19_ST={aguardando:['Aguardando compra','b-hoje'],parcial:['Parcialmente comprada','b-rota'],concluida:['Compra concluída','b-rec']};
+let E19={ok:false,sols:[],compras:[],saldos:[],entradas:[],pessoas:{},fc:[],fi:[],fd:[],cor:[],convites:[],urls:{}};
+let e19F={st:'abertas',q:''},e19AdmSub='acessos',e19SalQ='',e19LinkFeito=false;
+function e19Eh(){return perfil&&perfil.papel==='e19';}
+function e19Qtd(q,u){return un(q)+' '+(E19_AB[u]||u);}
+function e19Badge(s){const x=E19_ST[s]||[s,'b-can'];return `<span class="badge ${x[1]}">${x[0]}</span>`;}
+function e19Pessoa(uid){return E19.pessoas[uid]||e04Nome(uid);}
+function e19Url(c){return c?E19.urls[c]||'':'';}
+function e19Foto(c,grande){const u=e19Url(c);return `<div class="foto${grande?'':' p'}" style="${grande?'width:64px;height:64px':''}">${u?`<img src="${esc(u)}" alt="" loading="lazy" data-e19amp="${esc(c)}" style="cursor:zoom-in">`:'📷'}</div>`;}
+function e19Itens(){const L=[];E19.sols.forEach(s=>(s.itens||[]).forEach(i=>L.push({...i,sol:s})));return L;}
+function e19Item(id){return e19Itens().find(i=>i.id===id);}
+
+async function carregarE19(){
+  const vazio={ok:false,sols:[],compras:[],saldos:[],entradas:[],pessoas:{},fc:[],fi:[],fd:[],cor:[],convites:[],urls:E19.urls||{}};
+  const souE19=e19Eh(),fin=!souE19&&E04.pode;
+  if(!souE19&&!E04.pode){E19=vazio;return;}
+  const {data,error}=await sb.rpc('e19_painel');if(error){console.error(error);E19=vazio;return;}
+  const n={...vazio,ok:true,sols:data.solicitacoes||[],compras:data.compras||[],saldos:data.saldos||[],entradas:data.entradas||[],pessoas:data.pessoas||{}};
+  if(fin){const [c,i,d,k]=await Promise.all([tudo(()=>sb.from('e19_compras').select('*').order('id',{ascending:false})),tudo(()=>sb.from('e19_compra_itens').select('*').order('id')),
+      tudo(()=>sb.from('e19_compra_despesas').select('*').order('id')),tudo(()=>sb.from('e19_correcoes').select('*').order('id',{ascending:false}))]);n.fc=c;n.fi=i;n.fd=d;n.cor=k;}
+  if(!souE19&&E04.dono){const {data:cv}=await sb.from('e19_convites').select('*').order('nome');n.convites=cv||[];}
+  const cam=[...new Set(n.sols.flatMap(s=>(s.itens||[]).map(i=>i.foto)).filter(c=>c&&!n.urls[c]))];
+  for(let k=0;k<cam.length;k+=100){const {data:u}=await sb.storage.from('e19').createSignedUrls(cam.slice(k,k+100),6*3600);(u||[]).forEach(x=>{if(x.signedUrl)n.urls[x.path]=x.signedUrl;});}
+  E19=n;
+}
+async function e19Ampliar(c){let u=e19Url(c);if(!u){const {data,error}=await sb.storage.from('e19').createSignedUrl(c,3600);if(error){toast(msgErro(error));return;}u=data.signedUrl;}ampliar(u);}
+
+// ---------- telas do perfil 19 ----------
+function e19Topo(t){return `<div class="e04-topo"><b>🏬 Estoque 19</b> · ${t}</div>`;}
+function e19PagEstoque(admin){
+  const q=norm(e19SalQ.trim()),bt=(...c)=>!q||q.split(/\s+/).every(w=>norm(c.join(' ')).includes(w));
+  const sal=E19.saldos.filter(s=>bt(s.nome,s.sku||''));
+  const aReceber=E19.compras.filter(c=>c.status==='confirmada'&&!c.recebida_em);
+  const tot=E19.saldos.reduce((a,s)=>a+s.qtd,0);
+  return `${admin?'':e19Topo('o saldo físico só aumenta quando você confirma o recebimento da mercadoria.')}
+  ${aReceber.length?`<h3>Mercadoria comprada aguardando recebimento</h3><div class="lista">${aReceber.map(c=>`<div class="card"><div><div class="t">Compra #${c.id} · ${fd(c.data_compra)}</div>
+     <div class="meta">${(c.itens||[]).map(x=>{const i=e19Item(x.sol_item_id)||{};return esc(i.nome||'item')+' — '+e19Qtd(x.qtd,i.unidade)+(i.sol?' ('+esc(i.sol.numero)+')':'');}).join('<br>')}</div></div>
+     <div class="dir">${e19Eh()||E04.dono?`<button class="primary small" data-e19rec="${c.id}">Confirmar recebimento</button>`:'<span class="badge b-hoje">A receber</span>'}</div></div>`).join('')}</div>`:''}
+  <div class="barra"><input id="e19_sq" type="search" placeholder="Buscar produto ou SKU…" value="${esc(e19SalQ)}"></div>
+  <div class="resumo"><div class="kpi"><div class="n">${un(E19.saldos.length)}</div><div class="l">Produtos com saldo</div></div><div class="kpi"><div class="n">${un(tot)}</div><div class="l">Quantidade total</div></div><div class="kpi"><div class="n">${un(aReceber.length)}</div><div class="l">Compras a receber</div></div></div>
+  ${sal.length?`<div class="scroll"><table class="planilha"><tr><th></th><th>Produto</th><th>SKU</th><th class="n">Saldo</th></tr>${sal.map(s=>`<tr><td>${foto({foto_url:s.foto_url},1)}</td><td style="white-space:normal">${esc(s.nome)}</td><td>${esc(s.sku||'')}</td><td class="n"><b>${e19Qtd(s.qtd,s.unidade)}</b></td></tr>`).join('')}</table></div>`:'<div class="vazio">Nenhum saldo no Estoque 19 ainda.</div>'}
+  ${E19.entradas.length?`<h3>Últimas movimentações</h3><div class="scroll"><table class="planilha"><tr><th>Data</th><th>Produto</th><th class="n">Qtd</th><th class="n">Saldo depois</th><th>Origem</th><th>Por</th></tr>${E19.entradas.slice(0,60).map(e=>`<tr><td>${fts(e.em)}</td><td style="white-space:normal">${esc(e.nome||'')}</td><td class="n">${e.qtd>0?'+':''}${e19Qtd(e.qtd,e.unidade)}</td><td class="n">${un(e.saldo_depois)}</td><td>${esc(e.motivo||'')}</td><td>${esc(e19Pessoa(e.por))}</td></tr>`).join('')}</table></div>`:''}`;
+}
+function e19ListaSolic(admin){
+  const q=norm(e19F.q.trim());
+  const lst=E19.sols.filter(s=>(e19F.st==='todas'||(e19F.st==='abertas'?s.status!=='concluida':s.status==='concluida'))&&(!q||q.split(/\s+/).every(w=>norm(s.numero+' '+(s.itens||[]).map(i=>i.nome+' '+(i.sku||'')+' '+(i.obs||'')).join(' ')).includes(w))));
+  const custoItem=id=>E19.fi.filter(x=>x.sol_item_id===id&&(E19.fc.find(c=>c.id===x.compra_id)||{}).status==='confirmada').reduce((a,x)=>a+(+x.custo_total||0),0);
+  return `<div class="barra" style="align-items:center"><input id="e19_q" type="search" placeholder="Buscar produto ou nº da solicitação…" value="${esc(e19F.q)}">
+    <div class="seg">${[['abertas','Em andamento'],['concluida','Concluídas'],['todas','Todas']].map(([k,l])=>`<button class="${e19F.st===k?'on':''}" data-e19st="${k}">${l}</button>`).join('')}</div></div>
+  <div class="lista">${lst.length?lst.map(s=>`<div class="card" style="flex-direction:column;align-items:stretch">
+    <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap"><div><div class="t">Solicitação ${esc(s.numero)} ${e19Badge(s.status)}</div>
+      <div class="meta">${fts(s.criado_em)} · por <b>${esc(e19Pessoa(s.criado_por))}</b> · ${s.itens.length} produto(s)${s.obs?' · '+esc(s.obs):''}</div></div></div>
+    <div class="scroll" style="margin-top:8px"><table class="planilha"><tr><th>Foto</th><th>Produto</th><th class="n">Solicitada</th><th class="n">Comprada</th><th class="n">Falta comprar</th><th>Status</th>${admin?'<th class="n">Custo comprado</th>':''}</tr>
+    ${s.itens.map(i=>`<tr><td>${e19Foto(i.foto)}</td><td style="white-space:normal"><b>${esc(i.nome)}</b>${i.produto_id?'':' <span class="tag-lanc">novo</span>'}${i.obs?`<div class="meta" style="margin:0">${esc(i.obs)}</div>`:''}</td>
+      <td class="n">${e19Qtd(i.qtd,i.unidade)}</td><td class="n">${e19Qtd(i.qtd_comprada,i.unidade)}</td><td class="n"><b>${e19Qtd(i.falta,i.unidade)}</b></td><td>${e19Badge(i.status)}</td>${admin?`<td class="n">${brl(custoItem(i.id))}</td>`:''}</tr>`).join('')}</table></div></div>`).join('')
+    :'<div class="vazio">Nenhuma solicitação aqui.</div>'}</div>`;
+}
+function e19PagSolic(){
+  return `${e19Topo('peça os produtos ao Estoque 04 e acompanhe a compra.')}
+  <div class="barra"><button class="primary" data-e19act="nova">+ Nova solicitação</button></div>${e19ListaSolic(false)}`;
+}
+
+// ---------- nova solicitação ----------
+function e19NovaSolic(){
+  const K='e19_rasc_sol_'+(sessao&&sessao.user.id);
+  const R=e04Ler(K,null)||{idem:crypto.randomUUID(),obs:'',itens:[]};
+  if(!R.itens.length)R.itens.push({pid:null,nome:'',qtd:'',un:'un',foto:'',obs:''});
+  const salvar=()=>e04Gravar(K,R);let enviando=false;
+  const prevs={};
+  async function subirFoto(k,f){
+    try{const blob=await reduzirImagem(f,1400);const c='fotos/'+sessao.user.id+'/'+crypto.randomUUID()+'.jpg';
+      const {error}=await sb.storage.from('e19').upload(c,blob,{contentType:'image/jpeg',upsert:false});if(error)throw error;
+      R.itens[k].foto=c;prevs[c]=URL.createObjectURL(blob);salvar();desenhar();}
+    catch(e){toast(msgErro(e));desenhar();}}
+  function desenhar(){
+    abrir(`<h2>Nova solicitação de compra</h2><div class="sub">Rascunho salvo automaticamente. Adicione quantos produtos precisar.</div>
+    <div class="lista">${R.itens.map((i,k)=>{const u=prevs[i.foto]||e19Url(i.foto);return `<div class="card" style="flex-direction:column;align-items:stretch;gap:6px">
+      <div style="display:flex;justify-content:space-between;align-items:center"><b>Produto ${k+1}</b>${R.itens.length>1?`<button class="small danger" data-rm="${k}">Remover</button>`:''}</div>
+      <div style="display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap">
+       <div style="flex:1;min-width:220px">
+        <div class="campo"><label>Produto — escolha da lista ou digite o nome de um produto novo</label><input data-k="${k}" data-f="nome" value="${esc(i.nome)}" placeholder="Nome ou SKU" autocomplete="off"><div id="e19s${k}" class="sugs hidden"></div>
+         <div class="meta" style="margin:2px 0 0">${i.pid?'✔ Produto cadastrado':i.nome?'Produto novo (não cadastrado)':''}</div></div>
+        <div class="duas"><div class="campo"><label>Quantidade</label><input data-k="${k}" data-f="qtd" value="${esc(i.qtd)}" inputmode="numeric" placeholder="ex.: 5"></div>
+         <div class="campo"><label>Unidade de medida</label><select data-k="${k}" data-f="un">${Object.entries(E19_UN).map(([a,b])=>`<option value="${a}" ${i.un===a?'selected':''}>${b}</option>`).join('')}</select></div></div>
+        <div class="campo"><label>Observações (marca, modelo, tamanho, cor, referência…)</label><input data-k="${k}" data-f="obs" value="${esc(i.obs)}"></div></div>
+       <div style="width:150px;text-align:center"><div class="foto" style="width:140px;height:140px;margin:0 auto 6px">${u?`<img src="${esc(u)}" alt="">`:'📷'}</div>
+        <label class="small btnf" style="display:block;margin-bottom:4px">📷 Tirar foto<input type="file" accept="image/*" capture="environment" data-ft="${k}" class="hidden"></label>
+        <label class="small btnf" style="display:block">🖼 Galeria<input type="file" accept="image/*" data-ft="${k}" class="hidden"></label>
+        ${i.foto?`<button class="link" data-rf="${k}">remover foto</button>`:''}</div></div></div>`;}).join('')}</div>
+    <button data-add="1" style="margin-top:8px">+ Adicionar produto</button>
+    <div class="campo" style="margin-top:10px"><label>Observação geral (opcional)</label><input id="s19_obs" value="${esc(R.obs)}"></div>
+    <div class="erro"></div><div class="rodape"><button id="cx">Fechar (mantém rascunho)</button><button class="danger" id="limpa">Descartar</button><button class="primary" id="ok">Enviar solicitação</button></div>`,true);
+    const M=$('modal');
+    M.querySelectorAll('[data-f]').forEach(inp=>{const k=+inp.dataset.k,f=inp.dataset.f;
+      inp.addEventListener(inp.tagName==='SELECT'?'change':'input',()=>{const it=R.itens[k];
+        if(f==='nome'){it.nome=inp.value;if(it.pid&&produto(it.pid).nome!==inp.value)it.pid=null;}else if(f==='qtd')it.qtd=inp.value.replace(/\D/g,'');else it[f]=inp.value;salvar();});
+      if(f==='nome')ligarBusca(inp,$('e19s'+k),false,p=>{R.itens[k].pid=p.id;R.itens[k].nome=p.nome;salvar();desenhar();});});
+    M.querySelectorAll('[data-ft]').forEach(inp=>inp.onchange=()=>{const f=inp.files[0];if(f){inp.closest('div').querySelector('.foto').innerHTML='⏳';subirFoto(+inp.dataset.ft,f);}});
+    M.querySelectorAll('[data-rf]').forEach(b=>b.onclick=()=>{R.itens[+b.dataset.rf].foto='';salvar();desenhar();});
+    M.querySelectorAll('[data-rm]').forEach(b=>b.onclick=()=>{R.itens.splice(+b.dataset.rm,1);salvar();desenhar();});
+    M.querySelector('[data-add]').onclick=()=>{R.itens.push({pid:null,nome:'',qtd:'',un:'un',foto:'',obs:''});salvar();desenhar();const ns=M.querySelectorAll('[data-f="nome"]');};
+    $('s19_obs').oninput=()=>{R.obs=$('s19_obs').value;salvar();};
+    $('cx').onclick=fechar;
+    $('limpa').onclick=()=>{if(!confirm('Descartar este rascunho?'))return;e04Gravar(K,null);fechar();};
+    $('ok').onclick=()=>{const err=M.querySelector('.erro');
+      const k=R.itens.findIndex(i=>!String(i.nome).trim()||!(+i.qtd>0));
+      if(k>=0){err.textContent=`Produto ${k+1}: informe o produto e a quantidade.`;return;}
+      if(enviando)return;enviando=true; // toque duplo: o botão trava e o servidor ignora o mesmo envio
+      rodar($('ok'),async()=>{try{
+        const {data,error}=await sb.rpc('e19_criar_solicitacao',{p_idem:R.idem,p_obs:R.obs,p_itens:R.itens.map(i=>({produto_id:i.pid,nome:String(i.nome).trim(),qtd:+i.qtd,unidade:i.un,foto:i.foto||null,obs:i.obs}))});
+        if(error)throw error;e04Gravar(K,null);await carregarE19();fechar();aba='e19sol';render();toast('Solicitação '+data.numero+' enviada ao Estoque 04.');
+      }finally{enviando=false;}});};
+  }
+  desenhar();
+}
+
+// ---------- Estoque 04: fila de compras do 19 ----------
+function e19Pendentes(){return e19Itens().filter(i=>i.falta>0).sort((a,b)=>a.sol.id-b.sol.id||a.ordem-b.ordem);}
+function e19Fila(){
+  if(!E19.ok)return '<div class="vazio">Não foi possível carregar as compras do Estoque 19.</div>';
+  const pend=e19Pendentes(),conc=e19Itens().filter(i=>i.falta<=0).sort((a,b)=>b.sol.id-a.sol.id);
+  const corP=E19.cor.filter(c=>c.status==='pendente');
+  const linha=i=>`<div class="card"><div class="pinfo" style="align-items:flex-start">${e19Foto(i.foto,true)}<div><div class="t">${esc(i.nome)}${i.produto_id?'':' <span class="tag-lanc">produto novo</span>'} ${e19Badge(i.status)}</div>
+     <div class="meta">${esc(i.sol.numero)} · ${fd(i.sol.criado_em)} · ${esc(e19Pessoa(i.sol.criado_por))}${i.sku?' · SKU '+esc(i.sku):''}</div>
+     ${i.obs?`<div class="meta" style="margin:2px 0"><b>Obs.:</b> ${esc(i.obs)}</div>`:''}
+     <div class="meta">Solicitado ${e19Qtd(i.qtd,i.unidade)} · comprado ${e19Qtd(i.qtd_comprada,i.unidade)}</div></div></div>
+     <div class="dir">${i.falta>0?`<div class="n" style="color:var(--red)">Falta ${e19Qtd(i.falta,i.unidade)}</div>`:'<div class="n">✔</div>'}${i.falta>0&&!i.produto_id?`<button class="small" data-e19vinc="${i.id}">Vincular ao cadastro</button>`:''}</div></div>`;
+  return `<div class="total">Pedidos encaminhados pelo <b>Estoque 19</b>. Os pendentes aparecem primeiro. Toque na foto para ampliar.</div>
+  <div class="barra"><button class="primary" data-e19act="compra" ${pend.length?'':'disabled'}>🛒 Registrar compra</button>${E04.dono?'':''}</div>
+  ${corP.length?`<div class="warn" style="margin:6px 0">${corP.length} correção(ões) aguardando aprovação do administrador.</div>`:''}
+  <h3>Pendentes (${pend.length})</h3><div class="lista">${pend.length?pend.map(linha).join(''):'<div class="vazio">Nada pendente de compra.</div>'}</div>
+  <h3>Compras registradas</h3>${e19ListaCompras()}
+  ${conc.length?`<h3>Itens concluídos</h3><div class="lista">${conc.slice(0,limite).map(linha).join('')}</div>`:''}`;
+}
+function e19ListaCompras(){
+  if(!E19.fc.length)return '<div class="vazio">Nenhuma compra registrada.</div>';
+  return `<div class="lista">${E19.fc.slice(0,limite).map(c=>{const its=E19.fi.filter(x=>x.compra_id===c.id),pd=E19.cor.find(k=>k.compra_id===c.id&&k.status==='pendente');
+    return `<div class="card click" data-e19cmp="${c.id}" style="${c.status==='estornada'?'opacity:.55':''}"><div><div class="t">Compra #${c.id} · ${esc(c.fornecedor)} ${c.status==='estornada'?'<span class="badge b-can">Estornada</span>':c.recebida_em?'<span class="badge b-rec">Recebida no 19</span>':'<span class="badge b-hoje">A receber no 19</span>'}${pd?' <span class="badge b-hoje">Correção pendente</span>':''}${E19.cor.some(k=>k.compra_id===c.id&&k.status==='aprovada')?' <span class="badge b-pap">Corrigida</span>':''}</div>
+      <div class="meta">${fd(c.data_compra)} · lançada por ${esc(e04Nome(c.criado_por))} em ${fts(c.criado_em)}</div>
+      <div class="meta">${esc(its.map(x=>{const i=e19Item(x.sol_item_id)||{};return (i.nome||'item')+' ×'+x.qtd;}).join(' · '))}</div></div>
+      <div class="dir"><div class="n">${brl(c.valor_total)}</div><div class="meta">mercadoria ${brl(c.valor_mercadorias)}</div></div></div>`;}).join('')}</div>`;
+}
+
+// mesmo cálculo do servidor (e19_ratear), em centavos
+function e19Calc(itens,cab,desp){
+  const n=v=>{const x=e04Num(v);return x===null?0:x;},err=[];
+  const tx=n(cab.taxa),fr=n(cab.frete),co=n(cab.comissao);
+  if([tx,fr,co].some(x=>Number.isNaN(x)||x<0))err.push('Taxa, frete e comissão devem ser valores em reais, zero ou maiores.');
+  const D=desp.map(d=>({...d,v:n(d.valor)}));if(D.some(d=>Number.isNaN(d.v)||d.v<0))err.push('Confira o valor das outras despesas.');
+  if(D.some(d=>!String(d.descricao||'').trim()))err.push('Informe a descrição de cada despesa.');
+  const c=x=>Math.round((Number.isNaN(x)?0:x)*100);
+  const L=itens.map(i=>{const q=+i.q||0,cu=e04Num(i.cu),ok=q>0&&cu!==null&&!Number.isNaN(cu)&&cu>=0;const cu4=ok?Math.round(cu*10000)/10000:0;
+    const sub=ok?Math.round(q*cu4*100+1e-7):0;const esp=D.filter(d=>String(d.sid||'')===String(i.sid)).reduce((a,d)=>a+c(d.v),0);return {...i,q,cu:cu4,ok,sub,esp};});
+  const sh=c(tx)+c(fr)+c(co)+D.filter(d=>!d.sid).reduce((a,d)=>a+c(d.v),0);
+  let tw=L.reduce((a,l)=>a+l.sub,0);const usaQ=tw===0;if(usaQ)tw=L.reduce((a,l)=>a+l.q,0);let cw=0;
+  L.forEach(l=>{const w=usaQ?l.q:l.sub;l.rat=tw?Math.round(sh*(cw+w)/tw)-Math.round(sh*cw/tw):0;cw+=w;l.tot=l.sub+l.esp+l.rat;l.fin=l.q?l.tot/l.q/100:0;});
+  const merc=L.reduce((a,l)=>a+l.sub,0),dsp=c(tx)+c(fr)+c(co)+D.reduce((a,d)=>a+c(d.v),0),total=L.reduce((a,l)=>a+l.tot,0);
+  return {L,merc:merc/100,dsp:dsp/100,total:total/100,fecha:merc+dsp===total,err,ok:!err.length&&L.length>0&&L.every(l=>l.ok)};
+}
+function e19TabConf(C){
+  return `<div class="scroll"><table class="planilha"><tr><th>Produto</th><th class="n">Qtd</th><th class="n">Custo un.</th><th class="n">Subtotal</th><th class="n">Despesas do item</th><th class="n">Rateio (taxa, frete, comissão e compartilhadas)</th><th class="n">Custo total</th><th class="n">Custo final por unidade</th></tr>
+  ${C.L.map(l=>{const i=e19Item(l.sid)||{};return `<tr><td style="white-space:normal">${esc(i.nome||'')}</td><td class="n">${e19Qtd(l.q,i.unidade)}</td><td class="n">${l.ok?brl(l.cu,4)+' / '+(E19_AB[i.unidade]||i.unidade):'—'}</td><td class="n">${brl(l.sub/100)}</td><td class="n">${brl(l.esp/100)}</td><td class="n">${brl(l.rat/100)}</td><td class="n"><b>${brl(l.tot/100)}</b></td><td class="n"><b>${l.ok?brl(l.fin,2):'—'}</b> / ${E19_AB[i.unidade]||''}</td></tr>`;}).join('')}
+  <tr><td colspan="3"><b>Compra</b></td><td class="n"><b>${brl(C.merc)}</b></td><td colspan="2" class="n"><b>${brl(C.dsp)}</b></td><td class="n"><b>${brl(C.total)}</b></td><td></td></tr></table></div>
+  <div class="duas"><div class="total">Subtotal das mercadorias: <b>${brl(C.merc)}</b><br>Total das taxas e despesas: <b>${brl(C.dsp)}</b></div><div class="total">Custo total da compra<br><b style="font-size:22px">${brl(C.total)}</b></div></div>
+  <div class="calc">Despesas ligadas a um produto entram só nele. Taxa, frete, comissão e despesas compartilhadas são distribuídas pelo subtotal de cada produto. Cada despesa entra uma única vez e a soma dos itens fecha com o total, inclusive nos centavos.</div>`;
+}
+function e19RegistrarCompra(){
+  const K='e19_rasc_cmp';const pend=e19Pendentes();
+  const R=e04Ler(K,null)||{idem:crypto.randomUUID(),cab:{fornecedor:'',data_compra:hoje(),taxa:'',frete:'',comissao:'',obs:''},sel:{},desp:[]};
+  Object.keys(R.sel).forEach(id=>{if(!pend.find(i=>i.id===+id))delete R.sel[id];});
+  let arq=null,enviando=false;const salvar=()=>e04Gravar(K,R);
+  const itensSel=()=>pend.filter(i=>R.sel[i.id]).map(i=>({sid:i.id,q:R.sel[i.id].q,cu:R.sel[i.id].cu}));
+  const conf=()=>{const C=e19Calc(itensSel(),R.cab,R.desp);const el=$('c19_conf');if(el)el.innerHTML=itensSel().length?e19TabConf(C)+(C.err.length?`<div class="warn">${esc(C.err[0])}</div>`:''):'<div class="vazio">Selecione os itens comprados.</div>';return C;};
+  function desenhar(){
+    const fornecs=[...new Set(E19.fc.map(c=>c.fornecedor))];
+    abrir(`<h2>🛒 Registrar compra — Estoque 19</h2><div class="sub">Rascunho salvo automaticamente. Selecione só os itens efetivamente comprados.</div>
+    <div class="duas"><div class="campo"><label>Fornecedor * <span class="tag-lanc">uma vez por compra</span></label><input data-c="fornecedor" list="c19_fl" value="${esc(R.cab.fornecedor)}"><datalist id="c19_fl">${fornecs.map(f=>`<option value="${esc(f)}">`).join('')}</datalist></div>
+     <div class="campo"><label>Data da compra *</label><input data-c="data_compra" type="date" value="${esc(R.cab.data_compra)}"></div></div>
+    <h3>Itens comprados</h3>
+    <div class="lista">${pend.map(i=>{const s=R.sel[i.id],ab=E19_AB[i.unidade]||i.unidade;return `<div class="card" style="align-items:center;flex-wrap:wrap">
+      <label style="display:flex;gap:10px;align-items:center;flex:1;min-width:240px;cursor:pointer"><input type="checkbox" data-sel="${i.id}" ${s?'checked':''} style="width:22px;height:22px">${e19Foto(i.foto)}
+       <div><b>${esc(i.nome)}</b><div class="meta" style="margin:0">${esc(i.sol.numero)}${i.obs?' · '+esc(i.obs):''}</div><div class="meta" style="margin:0">Falta comprar: <b>${e19Qtd(i.falta,i.unidade)}</b></div></div></label>
+      ${s?`<div style="display:flex;gap:8px;align-items:flex-end"><div class="campo" style="margin:0"><label>Qtd comprada (${ab})</label><input data-q="${i.id}" value="${esc(s.q)}" inputmode="numeric" style="width:90px"></div>
+       <div class="campo" style="margin:0"><label>Custo por ${esc(E19_UN[i.unidade]||i.unidade)} (R$) <span class="tag-un">por ${ab}</span></label><input data-cu="${i.id}" value="${esc(s.cu)}" inputmode="decimal" placeholder="0,00" style="width:120px"></div></div>`:''}</div>`;}).join('')}</div>
+    <h3>Taxas e despesas</h3>
+    <div class="tres"><div class="campo"><label>Taxa (R$)</label><input data-c="taxa" value="${esc(R.cab.taxa)}" inputmode="decimal" placeholder="0,00"></div>
+     <div class="campo"><label>Frete (R$)</label><input data-c="frete" value="${esc(R.cab.frete)}" inputmode="decimal" placeholder="0,00"></div>
+     <div class="campo"><label>Comissão (R$)</label><input data-c="comissao" value="${esc(R.cab.comissao)}" inputmode="decimal" placeholder="0,00"></div></div>
+    <div class="meta">Outras despesas</div>
+    ${R.desp.map((d,k)=>`<div style="display:flex;gap:6px;flex-wrap:wrap;margin:4px 0"><input data-dd="${k}" data-f="descricao" value="${esc(d.descricao)}" placeholder="Descrição" style="flex:2;min-width:160px">
+      <input data-dd="${k}" data-f="valor" value="${esc(d.valor)}" inputmode="decimal" placeholder="R$ 0,00" style="width:110px">
+      <select data-dd="${k}" data-f="sid" style="flex:1;min-width:170px"><option value="">Compartilhada (rateio)</option>${pend.filter(i=>R.sel[i.id]).map(i=>`<option value="${i.id}" ${String(d.sid)===String(i.id)?'selected':''}>Só: ${esc(i.nome)}</option>`).join('')}</select>
+      <button class="small danger" data-ddrm="${k}">✕</button></div>`).join('')}
+    <button class="small" data-ddadd="1">+ Adicionar despesa</button>
+    <div class="campo" style="margin-top:10px"><label>Nota fiscal ou comprovante <span class="meta">(visível só para o Estoque 04 e o administrador)</span></label><label class="small btnf">${arq?'📎 '+esc(arq.name.slice(0,30)):'Anexar PDF ou imagem'}<input type="file" id="c19_arq" accept="application/pdf,image/*" class="hidden"></label></div>
+    <div class="campo"><label>Observação</label><input data-c="obs" value="${esc(R.cab.obs)}"></div>
+    <h3>Conferência antes de confirmar</h3><div id="c19_conf"></div>
+    <div class="erro"></div><div class="rodape"><button id="cx">Fechar (mantém rascunho)</button><button class="danger" id="limpa">Descartar</button><button class="primary" id="ok">Confirmar compra</button></div>`,true);
+    const M=$('modal');conf();
+    M.querySelectorAll('[data-c]').forEach(inp=>inp.addEventListener('input',()=>{R.cab[inp.dataset.c]=inp.value;salvar();conf();}));
+    M.querySelectorAll('[data-sel]').forEach(cb=>cb.onchange=()=>{const i=pend.find(x=>x.id===+cb.dataset.sel);if(cb.checked)R.sel[i.id]={q:String(i.falta),cu:''};else{delete R.sel[i.id];R.desp.forEach(d=>{if(String(d.sid)===String(i.id))d.sid='';});}salvar();desenhar();});
+    M.querySelectorAll('[data-q]').forEach(inp=>inp.addEventListener('input',()=>{R.sel[inp.dataset.q].q=inp.value.replace(/\D/g,'');salvar();conf();}));
+    M.querySelectorAll('[data-cu]').forEach(inp=>inp.addEventListener('input',()=>{R.sel[inp.dataset.cu].cu=inp.value;salvar();conf();}));
+    M.querySelectorAll('[data-dd]').forEach(inp=>inp.addEventListener(inp.tagName==='SELECT'?'change':'input',()=>{R.desp[+inp.dataset.dd][inp.dataset.f]=inp.value;salvar();conf();}));
+    M.querySelectorAll('[data-ddrm]').forEach(b=>b.onclick=()=>{R.desp.splice(+b.dataset.ddrm,1);salvar();desenhar();});
+    M.querySelector('[data-ddadd]').onclick=()=>{R.desp.push({descricao:'',valor:'',sid:''});salvar();desenhar();};
+    $('c19_arq').onchange=async()=>{const f=$('c19_arq').files[0];if(f)arq=await melhorarImagem(f);desenhar();};
+    $('cx').onclick=fechar;$('limpa').onclick=()=>{if(!confirm('Descartar o rascunho desta compra?'))return;e04Gravar(K,null);fechar();};
+    $('ok').onclick=()=>{const err=M.querySelector('.erro'),C=conf(),its=itensSel();
+      if(!R.cab.fornecedor.trim()){err.textContent='Informe o fornecedor.';return;}
+      if(!R.cab.data_compra){err.textContent='Informe a data da compra.';return;}
+      if(!its.length){err.textContent='Selecione pelo menos um item comprado.';return;}
+      for(const x of its){const i=pend.find(p=>p.id===x.sid);if(!(+x.q>0)){err.textContent='Informe a quantidade comprada de "'+i.nome+'".';return;}
+        if(+x.q>i.falta){err.textContent=`"${i.nome}": faltam só ${e19Qtd(i.falta,i.unidade)}.`;return;}}
+      if(!C.ok){err.textContent=C.err[0]||'Informe o custo unitário de todos os itens selecionados.';return;}
+      if(!C.fecha){err.textContent='O rateio não fechou com o total. Confira os valores.';return;}
+      if(enviando)return;enviando=true;
+      rodar($('ok'),async()=>{try{
+        let comp=null;if(arq){const c='comprovantes/'+R.idem+'/'+Date.now()+'.'+(((arq.name||'').split('.').pop()||'bin').toLowerCase().replace(/[^a-z0-9]/g,'')||'bin');
+          const {error:e1}=await sb.storage.from('e19').upload(c,arq,{contentType:arq.type||'application/octet-stream',upsert:true});if(e1)throw e1;comp={caminho:c,nome:(arq.name||'comprovante').slice(0,150)};}
+        const {data,error}=await sb.rpc('e19_registrar_compra',{p_idem:R.idem,p_cab:{fornecedor:R.cab.fornecedor.trim(),data_compra:R.cab.data_compra,taxa:e04Num(R.cab.taxa)??0,frete:e04Num(R.cab.frete)??0,comissao:e04Num(R.cab.comissao)??0,obs:R.cab.obs},
+          p_itens:its.map(x=>({sol_item_id:x.sid,qtd:+x.q,custo_unit:e04Num(x.cu)})),p_despesas:R.desp.map(d=>({descricao:d.descricao.trim(),valor:e04Num(d.valor)??0,sol_item_id:d.sid?+d.sid:null})),p_comprovante:comp});
+        if(error)throw error;e04Gravar(K,null);await carregarE19();fechar();render();toast('Compra #'+data+' registrada: '+brl(C.total)+'.');
+      }finally{enviando=false;}});};
+  }
+  desenhar();
+}
+
+// ---------- detalhe financeiro da compra (só 04 e administrador) ----------
+function e19VerCompra(cid){
+  const c=E19.fc.find(x=>x.id===cid);if(!c)return e19Bloqueado();
+  const its=E19.fi.filter(x=>x.compra_id===cid),ds=E19.fd.filter(x=>x.compra_id===cid),cs=E19.cor.filter(k=>k.compra_id===cid),pd=cs.find(k=>k.status==='pendente');
+  const link=location.origin+location.pathname+'#compra19-'+cid;
+  abrir(`<h2>Compra #${c.id} · Estoque 19 ${c.status==='estornada'?'<span class="badge b-can">Estornada</span>':''}</h2>
+  <div class="sub">Fornecedor <b>${esc(c.fornecedor)}</b> · data ${fd(c.data_compra)} · lançada por ${esc(e04Nome(c.criado_por))} em ${fts(c.criado_em)} · ${c.recebida_em?'recebida no 19 em '+fts(c.recebida_em)+' por '+esc(e19Pessoa(c.recebida_por)):'aguardando recebimento no 19'}${c.obs?' · '+esc(c.obs):''}</div>
+  <div class="scroll"><table class="planilha"><tr><th>Produto</th><th>Pedido</th><th class="n">Qtd</th><th class="n">Custo un.</th><th class="n">Subtotal</th><th class="n">Despesas do item</th><th class="n">Rateio</th><th class="n">Custo total</th><th class="n">Custo final / un.</th></tr>
+  ${its.map(x=>{const i=e19Item(x.sol_item_id)||{};return `<tr><td style="white-space:normal">${esc(i.nome||'')}</td><td>${esc(i.sol?i.sol.numero:'')}</td><td class="n">${e19Qtd(x.qtd,i.unidade)}</td><td class="n">${brl(x.custo_unit,4)}</td><td class="n">${brl(x.subtotal)}</td><td class="n">${brl(x.desp_item)}</td><td class="n">${brl(x.desp_rateio)}</td><td class="n"><b>${brl(x.custo_total)}</b></td><td class="n"><b>${brl(x.custo_final_unit,2)}</b></td></tr>`;}).join('')}
+  <tr><td colspan="4"><b>Compra</b></td><td class="n"><b>${brl(c.valor_mercadorias)}</b></td><td colspan="2" class="n"><b>${brl(c.valor_despesas)}</b></td><td class="n"><b>${brl(c.valor_total)}</b></td><td></td></tr></table></div>
+  <div class="total">Taxa ${brl(c.taxa)} · Frete ${brl(c.frete)} · Comissão ${brl(c.comissao)}${ds.length?'<br>Outras despesas: '+ds.map(d=>esc(d.descricao)+' '+brl(d.valor)+(d.sol_item_id?' (só '+esc((e19Item(d.sol_item_id)||{}).nome||'item')+')':' (compartilhada)')).join(' · '):''}</div>
+  ${c.comprovante_caminho?`<button class="link" id="c19_comp">📄 ${esc(c.comprovante_nome||'Comprovante')}</button>`:'<div class="meta">Sem comprovante anexado.</div>'}
+  <h3>Histórico de correções</h3>
+  <div class="tab">${cs.length?cs.map(k=>`<div class="lin"><div><b>${k.proposta&&k.proposta.estornar?'Estorno':'Correção'}</b> · <span class="badge ${k.status==='pendente'?'b-hoje':k.status==='aprovada'?'b-rec':'b-venc'}">${k.status}</span><div class="meta" style="margin:0">Pedida por ${esc(e04Nome(k.solicitado_por))} em ${fts(k.solicitado_em)} · motivo: ${esc(k.motivo)}${k.decidido_em?` · ${k.status} por ${esc(e04Nome(k.decidido_por))} em ${fts(k.decidido_em)}${k.decisao_obs?' — '+esc(k.decisao_obs):''}`:''}</div>${e19Dif(k)}</div></div>`).join(''):'<div class="lin">Nenhuma correção.</div>'}</div>
+  ${pd?'<div class="warn">Há uma correção aguardando aprovação do administrador. O lançamento continua como está.</div>':''}
+  <div class="erro"></div><div class="rodape"><button id="cx">Fechar</button><button id="c19_link">Copiar link</button>${c.status==='confirmada'&&!pd?'<button class="primary" id="c19_cor">Solicitar correção</button>':''}${pd&&E04.dono?`<button class="danger" data-e19dec="${pd.id}|0">Recusar</button><button class="primary" data-e19dec="${pd.id}|1">Aprovar correção</button>`:''}</div>`,true);
+  $('cx').onclick=fechar;$('c19_link').onclick=()=>navigator.clipboard.writeText(link).then(()=>toast('Link copiado.'),()=>toast(link));
+  if($('c19_comp'))$('c19_comp').onclick=()=>abrirArq('e19',c.comprovante_caminho);
+  if($('c19_cor'))$('c19_cor').onclick=()=>e19Corrigir(cid);
+  $('modal').querySelectorAll('[data-e19dec]').forEach(b=>b.onclick=()=>{const [id,ap]=b.dataset.e19dec.split('|');e19Decidir(+id,ap==='1');});
+}
+function e19Dif(k){
+  const a=k.antes||{},d=k.depois||k.proposta||{},L=[];const nm={fornecedor:'Fornecedor',data_compra:'Data',taxa:'Taxa',frete:'Frete',comissao:'Comissão',valor_total:'Total da compra'};
+  const ca=a.cabecalho||{},cd=k.depois?(d.cabecalho||{}):{...ca,...(d.cabecalho||{})};
+  Object.keys(nm).forEach(f=>{if(String(ca[f]??'')!==String(cd[f]??'')&&cd[f]!==undefined)L.push(`${nm[f]}: ${['taxa','frete','comissao','valor_total'].includes(f)?brl(ca[f])+' → '+brl(cd[f]):esc(ca[f])+' → '+esc(cd[f])}`);});
+  const ia=a.itens||[],idp=k.depois?(d.itens||[]):(d.itens||[]).map(x=>({...(ia.find(y=>y.id===x.id)||{}),...x}));
+  idp.forEach(x=>{const y=ia.find(z=>z.id===x.id)||{};if(+x.qtd!==+y.qtd)L.push(`${esc(y.nome||'')}: qtd ${un(y.qtd)} → ${un(x.qtd)}`);if(+x.custo_unit!==+y.custo_unit)L.push(`${esc(y.nome||'')}: custo ${brl(y.custo_unit,4)} → ${brl(x.custo_unit,4)}`);});
+  if(d.estornar)L.push('Estorno da compra inteira');
+  if(k.proposta&&k.proposta.despesas)L.push('Outras despesas: '+(k.proposta.despesas.map(x=>esc(x.descricao)+' '+brl(x.valor)).join(', ')||'nenhuma'));
+  return L.length?`<div class="meta" style="margin:0">${L.join(' · ')}</div>`:'';
+}
+function e19Corrigir(cid){
+  const c=E19.fc.find(x=>x.id===cid),its=E19.fi.filter(x=>x.compra_id===cid),ds=E19.fd.filter(x=>x.compra_id===cid);let est=false;
+  const desp=ds.map(d=>({descricao:d.descricao,valor:dec(d.valor),sid:d.sol_item_id||''}));
+  function desenhar(){
+    abrir(`<h2>Solicitar correção · Compra #${c.id}</h2><div class="sub">Nada muda até o administrador master aprovar. Altere só o que está errado.</div>
+    <div class="seg" style="margin-bottom:10px"><button class="${est?'':'on'}" data-t="0">Corrigir dados</button><button class="${est?'on':''}" data-t="1">Estornar compra inteira</button></div>
+    ${est?`<div class="total">O estorno desfaz a compra: os itens voltam a ficar pendentes${c.recebida_em?' e o saldo do Estoque 19 é reduzido':''}.</div>`:`
+    <div class="duas"><div class="campo"><label>Fornecedor</label><input id="k_forn" value="${esc(c.fornecedor)}"></div><div class="campo"><label>Data da compra</label><input id="k_data" type="date" value="${esc(c.data_compra)}"></div></div>
+    <div class="scroll"><table class="planilha nt"><tr><th>Produto</th><th class="n">Qtd</th><th class="n">Custo un. (R$)</th></tr>${its.map(x=>{const i=e19Item(x.sol_item_id)||{};return `<tr><td style="white-space:normal">${esc(i.nome||'')}</td><td class="n"><input data-kq="${x.id}" value="${x.qtd}" inputmode="numeric" style="width:70px;text-align:right"> ${E19_AB[i.unidade]||''}</td><td class="n"><input data-kc="${x.id}" value="${String(+x.custo_unit).replace('.',',')}" inputmode="decimal" style="width:100px;text-align:right"></td></tr>`;}).join('')}</table></div>
+    <div class="tres"><div class="campo"><label>Taxa (R$)</label><input id="k_taxa" value="${dec(c.taxa)}"></div><div class="campo"><label>Frete (R$)</label><input id="k_frete" value="${dec(c.frete)}"></div><div class="campo"><label>Comissão (R$)</label><input id="k_com" value="${dec(c.comissao)}"></div></div>
+    <div class="meta">Outras despesas</div>${desp.map((d,k)=>`<div style="display:flex;gap:6px;margin:4px 0;flex-wrap:wrap"><input data-kd="${k}" data-f="descricao" value="${esc(d.descricao)}" style="flex:2"><input data-kd="${k}" data-f="valor" value="${esc(d.valor)}" style="width:100px">
+      <select data-kd="${k}" data-f="sid"><option value="">Compartilhada</option>${its.map(x=>`<option value="${x.sol_item_id}" ${String(d.sid)===String(x.sol_item_id)?'selected':''}>Só: ${esc((e19Item(x.sol_item_id)||{}).nome||'')}</option>`).join('')}</select><button class="small danger" data-kdrm="${k}">✕</button></div>`).join('')}
+    <button class="small" id="k_dadd">+ Adicionar despesa</button>`}
+    <div class="campo" style="margin-top:10px"><label>Motivo da correção *</label><textarea id="k_mot"></textarea></div>
+    <div class="erro"></div><div class="rodape"><button id="cx">Voltar</button><button class="primary" id="ok">Enviar para aprovação</button></div>`,true);
+    const M=$('modal');M.querySelectorAll('[data-t]').forEach(b=>b.onclick=()=>{est=b.dataset.t==='1';desenhar();});
+    M.querySelectorAll('[data-kd]').forEach(inp=>inp.addEventListener(inp.tagName==='SELECT'?'change':'input',()=>{desp[+inp.dataset.kd][inp.dataset.f]=inp.value;}));
+    M.querySelectorAll('[data-kdrm]').forEach(b=>b.onclick=()=>{desp.splice(+b.dataset.kdrm,1);desenhar();});
+    if($('k_dadd'))$('k_dadd').onclick=()=>{desp.push({descricao:'',valor:'',sid:''});desenhar();};
+    $('cx').onclick=()=>e19VerCompra(cid);
+    $('ok').onclick=()=>{const err=M.querySelector('.erro');let p={};
+      if(est)p={estornar:true};else{
+        const cab={};if(val('k_forn')!==c.fornecedor)cab.fornecedor=val('k_forn');if(val('k_data')!==c.data_compra)cab.data_compra=val('k_data');
+        [['k_taxa','taxa'],['k_frete','frete'],['k_com','comissao']].forEach(([id,f])=>{const v=e04Num(val(id))??0;if(Number.isNaN(v)||v<0){p.erro=1;}else if(Math.abs(v-(+c[f]||0))>0.004)cab[f]=v;});
+        if(p.erro){err.textContent='Confira taxa, frete e comissão.';return;}
+        if(Object.keys(cab).length)p.cabecalho=cab;
+        const it=[];its.forEach(x=>{const o={id:x.id},q=num(M.querySelector(`[data-kq="${x.id}"]`).value),cu=e04Num(M.querySelector(`[data-kc="${x.id}"]`).value);
+          if(q!==x.qtd)o.qtd=q;if(cu!==null&&!Number.isNaN(cu)&&Math.abs(cu-(+x.custo_unit))>0.00001)o.custo_unit=cu;if(Object.keys(o).length>1)it.push(o);});
+        if(it.some(o=>o.qtd!=null&&o.qtd<=0)){err.textContent='Quantidade deve ser maior que zero. Para desfazer, use o estorno.';return;}
+        if(it.length)p.itens=it;
+        const nd=desp.map(d=>({descricao:String(d.descricao).trim(),valor:e04Num(d.valor)??0,sol_item_id:d.sid?+d.sid:null}));
+        const od=ds.map(d=>({descricao:d.descricao,valor:+d.valor,sol_item_id:d.sol_item_id||null}));
+        if(nd.some(d=>!d.descricao||Number.isNaN(d.valor)||d.valor<0)){err.textContent='Confira as outras despesas.';return;}
+        if(JSON.stringify(nd)!==JSON.stringify(od))p.despesas=nd;
+        if(!Object.keys(p).length){err.textContent='Altere pelo menos um dado.';return;}}
+      if(!val('k_mot')){err.textContent='Informe o motivo.';return;}
+      rodar($('ok'),async()=>{const {error}=await sb.rpc('e19_solicitar_correcao',{p_compra:cid,p_motivo:val('k_mot'),p_proposta:p});if(error)throw error;await carregarE19();fechar();render();toast('Correção enviada para aprovação do administrador.');});};
+  }
+  desenhar();
+}
+function e19Decidir(id,aprovar){
+  abrir(`<h2>${aprovar?'Aprovar':'Recusar'} correção</h2><div class="sub">${aprovar?'A correção é aplicada uma única vez, os custos são recalculados e o histórico guarda os dados anteriores e os novos.':''}</div>
+  <div class="campo"><label>Observação ${aprovar?'(opcional)':'(motivo da recusa)'}</label><input id="dk_obs"></div>
+  <div class="erro"></div><div class="rodape"><button id="cx">Voltar</button><button class="${aprovar?'primary':'danger'}" id="ok">${aprovar?'Aprovar':'Recusar'}</button></div>`);
+  $('cx').onclick=fechar;
+  $('ok').onclick=()=>rodar($('ok'),async()=>{const {error}=await sb.rpc('e19_decidir_correcao',{p_id:id,p_aprovar:aprovar,p_obs:val('dk_obs')});if(error)throw error;await carregarE19();fechar();render();toast(aprovar?'Correção aprovada e aplicada.':'Correção recusada.');});
+}
+function e19Bloqueado(msg){
+  abrir(`<h2>🔒 Acesso bloqueado</h2><div class="sub">${esc(msg||'Este registro financeiro é restrito ao Estoque 04 e ao administrador.')}</div><div class="rodape"><button class="primary" id="cx">Fechar</button></div>`);
+  $('cx').onclick=()=>{fechar();history.replaceState(null,'',location.pathname);};
+}
+// link direto (#compra19-N): o servidor decide; o perfil 19 é sempre recusado
+async function e19AbrirLink(){
+  const m=location.hash.match(/^#compra19-(\d+)$/);if(!m||e19LinkFeito)return;e19LinkFeito=true;const id=+m[1];
+  const {error}=await sb.rpc('e19_compra_detalhe',{p_compra:id});
+  if(error){log('acao','Acesso bloqueado ao link da compra #'+id+' (Estoque 19)');return e19Bloqueado(msgErro(error));}
+  if(!e19Eh()&&E04.pode){if(aba!=='e04'&&perfil.papel!=='e04')aba='e04';e04Sub='e19';render();e19VerCompra(id);}
+}
+function e19Vincular(iid){
+  const i=e19Item(iid);
+  abrir(`<h2>Vincular ao cadastro</h2><div class="sub">Item digitado pelo Estoque 19: <b>${esc(i.nome)}</b>${i.obs?' · '+esc(i.obs):''}</div>
+  <div class="campo"><label>Busque o produto cadastrado (nome ou SKU)</label><input id="v19_b" autocomplete="off"><div id="v19_s" class="sugs hidden"></div></div>
+  <div class="meta">Se não vincular, o produto é cadastrado com o nome digitado quando o Estoque 19 confirmar o recebimento.</div>
+  <div class="erro"></div><div class="rodape"><button id="cx">Voltar</button></div>`);
+  $('cx').onclick=fechar;
+  ligarBusca($('v19_b'),$('v19_s'),false,p=>rodar($('cx'),async()=>{const {error}=await sb.rpc('e19_vincular_produto',{p_item:iid,p_produto:p.id});if(error)throw error;await carregarE19();fechar();render();toast('Vinculado a '+p.nome+'.');}));
+}
+function e19Receber(cid){
+  const c=E19.compras.find(x=>x.id===cid);if(!c)return;
+  confirmar('Confirmar recebimento da compra #'+cid,'Confira a mercadoria: '+(c.itens||[]).map(x=>{const i=e19Item(x.sol_item_id)||{};return (i.nome||'item')+' — '+e19Qtd(x.qtd,i.unidade);}).join('; ')+'. Ao confirmar, essas quantidades entram no saldo físico do Estoque 19.','Confirmar recebimento',
+    async()=>{const {error}=await sb.rpc('e19_confirmar_recebimento',{p_compra:cid});if(error)throw error;await carregarE19();render();toast('Recebimento confirmado. Saldo do Estoque 19 atualizado.');});
+}
+
+// ---------- administrador master: acessos e visão das duas unidades ----------
+function abaE19Adm(){
+  const corP=E19.cor.filter(k=>k.status==='pendente');
+  const subs=[['acessos','Acessos'],['saldo','Saldo do 19'],['solic','Solicitações e valores'],['cor','Correções'+(corP.length?` (${corP.length})`:'')]];
+  let h=`<div class="e04-topo"><b>🏬 Estoque 19</b> · só você gerencia os acessos e aprova correções.</div>
+  <div class="seg" style="margin:4px 0 10px;flex-wrap:wrap">${subs.map(([k,l])=>`<button class="${e19AdmSub===k?'on':''}" data-e19adm="${k}">${l}</button>`).join('')}</div>`;
+  if(e19AdmSub==='acessos')h+=e19PagAcessos();else if(e19AdmSub==='saldo')h+=e19PagEstoque(true);else if(e19AdmSub==='solic')h+=e19ListaSolic(true)+'<h3>Compras</h3>'+e19ListaCompras();
+  else h+=corP.length?`<div class="lista">${corP.map(k=>{const c=E19.fc.find(x=>x.id===k.compra_id)||{};return `<div class="card" style="flex-direction:column;align-items:stretch"><div class="t">${k.proposta.estornar?'Estorno':'Correção'} · Compra #${k.compra_id} · ${esc(c.fornecedor||'')}</div>
+    <div class="meta">Pedida por <b>${esc(e04Nome(k.solicitado_por))}</b> em ${fts(k.solicitado_em)} · motivo: ${esc(k.motivo)}</div>${e19Dif(k)}
+    <div class="rodape" style="justify-content:flex-start"><button class="small" data-e19cmp="${k.compra_id}">Ver compra</button><button class="small primary" data-e19dk="${k.id}|1">Aprovar</button><button class="small danger" data-e19dk="${k.id}|0">Recusar</button></div></div>`;}).join('')}</div>`:'<div class="vazio">Nenhuma correção pendente.</div>';
+  return h;
+}
+function e19PagAcessos(){
+  return `<div class="card" style="flex-direction:column;align-items:stretch"><div class="t">Criar acesso ao Estoque 19</div>
+    <div class="meta">O funcionário recebe um e-mail com o link de acesso e define a própria senha no primeiro login. Ele entra direto na página do Estoque 19, sem ver outros estoques, fornecedores ou valores.</div>
+    <div class="duas"><div class="campo"><label>Nome do funcionário</label><input id="a19_nome"></div><div class="campo"><label>E-mail</label><input id="a19_email" type="email"></div></div>
+    <div class="rodape" style="justify-content:flex-start"><button class="primary" data-e19act="convidar">Criar acesso e enviar convite</button></div></div>
+  <h3>Funcionários do Estoque 19</h3>
+  <div class="lista">${E19.convites.length?E19.convites.map(c=>{const p=D.perfis.find(x=>x.user_id===c.user_id);return `<div class="card"><div><div class="t">${esc(c.nome)} ${c.ativo?'<span class="badge b-rec">Ativo</span>':'<span class="badge b-can">Desativado</span>'}</div>
+    <div class="meta">${esc(c.email)} · ${c.user_id?'conta criada'+(p&&p.ultimo_acesso?' · último acesso '+fts(p.ultimo_acesso):''):'convite enviado, ainda não aceitou'} · desde ${fd(c.convidado_em)}</div></div>
+    <div>${c.ativo?`<button class="small" data-e19reenv="${c.id}">Reenviar convite</button> <button class="small danger" data-e19at="${c.id}|0">Desativar</button>`:`<button class="small" data-e19at="${c.id}|1">Reativar</button>`}</div></div>`;}).join(''):'<div class="vazio">Nenhum acesso criado ainda.</div>'}</div>`;
+}
+async function e19EnviarConvite(email,nome){
+  const {error}=await sb.auth.signInWithOtp({email,options:{shouldCreateUser:true,emailRedirectTo:location.origin+location.pathname,data:{nome}}});
+  if(error)throw error;
+}
+function e19DefinirSenha(){
+  abrir(`<h2>Bem-vindo ao Estoque 19</h2><div class="sub">Defina sua senha para os próximos acessos (mínimo 6 caracteres).</div>
+  <div class="campo"><label>Nova senha</label><input id="ds_1" type="password" autocomplete="new-password" minlength="6"></div>
+  <div class="campo"><label>Repita a senha</label><input id="ds_2" type="password" autocomplete="new-password"></div>
+  <div class="erro"></div><div class="rodape"><button class="primary" id="ok">Salvar senha</button></div>`);
+  $('ok').onclick=()=>{const e=$('modal').querySelector('.erro');if($('ds_1').value.length<6){e.textContent='A senha precisa ter pelo menos 6 caracteres.';return;}if($('ds_1').value!==$('ds_2').value){e.textContent='As senhas não conferem.';return;}
+    rodar($('ok'),async()=>{const {error}=await sb.auth.updateUser({password:$('ds_1').value,data:{senha_definida:true}});if(error)throw error;fechar();toast('Senha criada. Use seu e-mail e essa senha para entrar.');});};
+}
+
+// ---------- eventos do Estoque 19 ----------
+$('app').addEventListener('click',async e=>{
+  const t=e.target.closest('[data-e19act],[data-e19st],[data-e19cmp],[data-e19rec],[data-e19amp],[data-e19vinc],[data-e19adm],[data-e19at],[data-e19reenv],[data-e19dk]');if(!t)return;
+  if(t.dataset.e19amp){e.stopPropagation();e19Ampliar(t.dataset.e19amp);return;}
+  if(t.dataset.e19st){e19F.st=t.dataset.e19st;render();return;}
+  if(t.dataset.e19cmp){if(E04.pode&&!e19Eh())e19VerCompra(+t.dataset.e19cmp);return;}
+  if(t.dataset.e19rec){e19Receber(+t.dataset.e19rec);return;}
+  if(t.dataset.e19vinc){e19Vincular(+t.dataset.e19vinc);return;}
+  if(t.dataset.e19adm){e19AdmSub=t.dataset.e19adm;render();return;}
+  if(t.dataset.e19dk){const [id,ap]=t.dataset.e19dk.split('|');e19Decidir(+id,ap==='1');return;}
+  if(t.dataset.e19at){const [id,at]=t.dataset.e19at.split('|');const c=E19.convites.find(x=>x.id===+id);
+    if(at==='0')return confirmar('Desativar acesso','Desativar o acesso de '+c.nome+' ('+c.email+')? Ele deixa de entrar no sistema imediatamente.','Desativar',async()=>{const {error}=await sb.rpc('e19_definir_ativo',{p_id:+id,p_ativo:false});if(error)throw error;await carregarE19();render();toast('Acesso desativado.');});
+    t.disabled=true;const {error}=await sb.rpc('e19_definir_ativo',{p_id:+id,p_ativo:true});t.disabled=false;if(error)toast(msgErro(error));else{await carregarE19();render();toast('Acesso reativado.');}return;}
+  if(t.dataset.e19reenv){const c=E19.convites.find(x=>x.id===+t.dataset.e19reenv);t.disabled=true;try{await e19EnviarConvite(c.email,c.nome);toast('Convite reenviado para '+c.email+'.');}catch(err){toast(msgErro(err));}t.disabled=false;return;}
+  const a=t.dataset.e19act;
+  if(a==='nova')e19NovaSolic();
+  if(a==='compra'&&E04.pode)e19RegistrarCompra();
+  if(a==='convidar'&&E04.dono){const nome=val('a19_nome'),email=val('a19_email').toLowerCase();if(!nome||!email){toast('Informe nome e e-mail.');return;}
+    t.disabled=true;try{const {error}=await sb.rpc('e19_convidar',{p_nome:nome,p_email:email});if(error)throw error;
+      let aviso='';try{await e19EnviarConvite(email,nome);}catch(err){aviso=' Convite não enviado agora ('+msgErro(err)+'). Use "Reenviar convite" em alguns minutos.';}
+      await carregarE19();render();toast('Acesso criado para '+nome+'.'+(aviso||' Convite enviado para '+email+'.'));}catch(err){toast(msgErro(err));t.disabled=false;}}
+});
+$('app').addEventListener('input',e=>{const id=e.target.id;if(id!=='e19_q'&&id!=='e19_sq')return;if(id==='e19_q')e19F.q=e.target.value;else e19SalQ=e.target.value;const p=e.target.selectionStart;render();const b=$(id);if(b){b.focus();b.setSelectionRange(p,p);}});
+document.addEventListener('click',e=>{const t=e.target.closest('#modal [data-e19amp]');if(t){e.stopPropagation();e.preventDefault();e19Ampliar(t.dataset.e19amp);}},true);
 
 iniciar();
 </script>
