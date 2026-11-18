@@ -151,6 +151,34 @@ input:focus,select:focus,textarea:focus{outline:2px solid #9a9a95}
 .ia-ok{background:#ecfdf5;border:1px solid #a7f3d0;border-radius:10px;padding:8px 12px;margin-bottom:10px;font-size:14px}
 .ia-av{background:#fffbeb;border:1px solid #fde68a;color:#92400e;border-radius:10px;padding:8px 12px;margin-bottom:10px;font-size:13px}
 .e04-topo{background:#111;color:#fff;border-radius:12px;padding:10px 14px;margin:6px 0 4px;font-size:14px}
+.e04-add{display:flex;gap:10px;align-items:flex-start;margin:4px 0 14px}
+.e04-nome{flex:1;position:relative}
+.e04-nome input{width:100%;font-size:17px;padding:14px 14px 14px 44px;border-radius:12px;border:2px solid var(--ink);background:#fff}
+.e04-nome .lupa{position:absolute;left:14px;top:13px;font-size:18px;opacity:.6;pointer-events:none}
+.e04-nome .sugs{position:absolute;left:0;right:0;z-index:20}
+.e04-bip{width:170px;flex:none}
+.e04-bip input{width:100%;font-size:13px;padding:7px 9px 7px 30px;border-radius:9px;border:1px dashed #9a978f;background:#fafaf8 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='14'%3E%3Cpath d='M1 1v12M4 1v12M6 1v12M9 1v12M12 1v12M14 1v12M17 1v12' stroke='%23555' stroke-width='1.4'/%3E%3C/svg%3E") no-repeat 8px center;font-family:ui-monospace,monospace}
+.e04-bip small{display:block;color:var(--mut);font-size:11px;margin-top:3px;text-align:center}
+.e04-itens{display:flex;flex-direction:column;gap:8px}
+.e04-item{display:grid;grid-template-columns:44px 1fr auto auto auto 30px;gap:12px;align-items:center;border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:#fff}
+.e04-item .fot{width:44px;height:44px;border-radius:9px;background:#f1f0ec;display:flex;align-items:center;justify-content:center;overflow:hidden;font-size:20px}
+.e04-item .fot img{width:100%;height:100%;object-fit:cover}
+.e04-item .nm{font-weight:700;line-height:1.25}
+.e04-item .nm small{display:block;font-weight:400;color:var(--mut);font-size:12px;margin-top:2px}
+.e04-step{display:flex;align-items:center;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.e04-step button{border:0;border-radius:0;background:#f4f3ef;width:32px;height:36px;padding:0;font-size:18px;font-weight:700}
+.e04-step input{width:52px;border:0;text-align:center;font-weight:700;font-size:15px;height:36px;padding:0}
+.e04-preco{display:flex;align-items:center;gap:6px;color:var(--mut);font-size:13px}
+.e04-preco input{width:96px;text-align:right;font-weight:600;padding:8px 9px;border-radius:9px}
+.e04-sub{min-width:100px;text-align:right;font-weight:800;font-size:15px}
+.e04-item .x{border:0;background:none;color:#a8a49b;font-size:18px;padding:0}
+.e04-item .x:hover{color:var(--red)}
+.e04-totm{display:flex;justify-content:space-between;align-items:center;background:var(--ink);color:#fff;border-radius:12px;padding:12px 16px;margin-top:10px;font-size:15px}
+.e04-totm b{font-size:20px}
+.e04-vazio{border:2px dashed var(--line);border-radius:14px;padding:26px;text-align:center;color:var(--mut)}
+.e04-vazio b{display:block;color:var(--ink);font-size:16px;margin-bottom:4px}
+.e04-rod{display:grid;grid-template-columns:180px 1fr;gap:10px;margin-top:14px}
+@media(max-width:700px){.e04-add{flex-direction:column-reverse}.e04-bip{width:100%}.e04-item{grid-template-columns:40px 1fr auto;row-gap:8px}.e04-item .nm{grid-column:2/4}.e04-item .fot{grid-row:1}.e04-step{grid-column:1/3}.e04-rod{grid-template-columns:1fr}}
 .tag-un,.tag-lanc{font-size:11px;font-weight:700;padding:1px 7px;border-radius:99px;margin-left:4px}.tag-un{background:#dbeafe;color:#1e40af}.tag-lanc{background:#fef3c7;color:#92400e}
 .calc{background:#f3f1ec;border-radius:10px;padding:10px 12px;font-size:14px;margin:8px 0;line-height:1.6}.calc-l{padding-left:12px}
 .leitor label{font-size:14px}.leitor.prod input{border:2px solid #2563eb;background:#eff6ff;font-size:18px;padding:12px;font-family:ui-monospace,monospace}.leitor.etq input{border:2px solid #d97706;background:#fffbeb;font-size:18px;padding:12px;font-family:ui-monospace,monospace}.leitor.prod label{color:#1e40af}.leitor.etq label{color:#92400e}
@@ -1244,7 +1272,7 @@ function e04Entrada(){
   if(!R.desp)R.desp={pct:'',tipo:'acrescimo',frete:'',tx:'',co:'',te:''};if(!R.aba)R.aba='merc';
   R.itens=R.itens.map(i=>({pid:i.pid,cod:i.cod||'',qtd:i.qtd,cu:i.cu??''}));
   const salvar=()=>e04Gravar('e04_rasc_ent',R);
-  const linha=(pid,cod)=>{const ex=R.itens.find(i=>i.pid===pid);if(ex){ex.qtd=(+ex.qtd||0)+1;if(cod&&!ex.cod)ex.cod=cod;}else R.itens.push({pid,cod:cod||'',qtd:1,cu:''});R.revisar=false;salvar();desenhar();setTimeout(()=>$('e_cod')&&$('e_cod').focus(),40);};
+  const linha=(pid,cod)=>{const ex=R.itens.find(i=>i.pid===pid);if(ex){ex.qtd=(+ex.qtd||0)+1;if(cod&&!ex.cod)ex.cod=cod;}else R.itens.push({pid,cod:cod||'',qtd:1,cu:''});R.revisar=false;salvar();desenhar();setTimeout(()=>$('e_busca')&&$('e_busca').focus(),40);};
   const ler=cod=>{cod=limpaCod(cod);if(!cod)return;const ids=e04Achar(cod);
     if(ids.length===1)return linha(ids[0],cod);
     if(ids.length>1)return e04Escolher(cod,ids,desenhar,pid=>linha(pid,cod));
@@ -1275,16 +1303,18 @@ function e04Entrada(){
     }
     let corpo='';
     if(R.aba==='merc'){
-      corpo=`<div class="campo leitor prod"><label>📦 Leia ou digite o código de barras do PRODUTO</label><input id="e_cod" inputmode="text" autocomplete="off" spellcheck="false" placeholder="Bipe o código e aguarde — ou digite e tecle Enter"></div>
-      <div class="campo"><label>Ou busque por nome / SKU</label><input id="e_busca" placeholder="Nome ou SKU" autocomplete="off"><div id="e_sug" class="sugs hidden"></div></div>
-      ${R.itens.length?`<div class="scroll"><table class="planilha nt"><tr><th>Produto</th><th class="n">Qtd recebida</th><th class="n">Preço de compra (R$)<br><span class="tag-un">por unidade</span></th><th class="n">Subtotal</th><th></th></tr>
-      ${R.itens.map((i,k)=>{const p=produto(i.pid),c=C.L[k];return `<tr><td style="white-space:normal;min-width:180px"><b>${esc(p.nome)}</b><div class="meta" style="margin:0">${esc(p.sku||'')}${i.cod?' · código '+esc(i.cod):''} · saldo E04 ${un(e04Saldo(i.pid))}</div></td>
-        <td class="n"><input data-ei="${k}" data-f="qtd" value="${esc(i.qtd)}" inputmode="numeric" style="width:70px;text-align:right"></td>
-        <td class="n"><input data-ei="${k}" data-f="cu" value="${esc(i.cu)}" inputmode="decimal" placeholder="0,00" style="width:96px;text-align:right"></td>
-        <td class="n"><b id="e_sub${k}">${c.ok?brl(c.sub):'—'}</b></td><td><button class="small danger" data-erm="${k}">✕</button></td></tr>`;}).join('')}
-      <tr><td colspan="3"><b>Total das mercadorias</b></td><td class="n"><b id="e_totm">${brl(C.S)}</b></td><td></td></tr></table></div>
-      <div class="calc">Subtotal da linha = quantidade × preço de compra por unidade. Cada nova leitura do mesmo código soma 1 unidade na linha.</div>`:'<div class="vazio" style="padding:16px">Bipe o primeiro produto. Cada nova leitura do mesmo código soma 1 unidade na mesma linha.</div>'}
-      <div class="duas"><div class="campo"><label>Data</label><input id="e_data" type="date" value="${esc(R.data)}"></div><div class="campo"><label>Observação</label><input id="e_obs" value="${esc(R.obs)}"></div></div>`;
+      corpo=`<div class="e04-add"><div class="e04-nome"><span class="lupa">🔎</span><input id="e_busca" placeholder="Digite o nome do produto ou o SKU" autocomplete="off" spellcheck="false"><div id="e_sug" class="sugs hidden"></div></div>
+       <div class="e04-bip"><input id="e_cod" inputmode="text" autocomplete="off" spellcheck="false" placeholder="código de barras" title="Bipe aqui com o leitor"><small>ou bipe o código</small></div></div>
+      ${R.itens.length?`<div class="e04-itens">${R.itens.map((i,k)=>{const p=produto(i.pid),c=C.L[k];return `<div class="e04-item">
+        <div class="fot">${p.foto_url?`<img src="${esc(p.foto_url)}" alt="">`:'📦'}</div>
+        <div class="nm">${esc(p.nome)}<small>${esc(p.sku||'')}${i.cod?' · '+esc(i.cod):''} · saldo E04 ${un(e04Saldo(i.pid))}</small></div>
+        <div class="e04-step"><button data-eq="${k}|-1" title="Menos 1">−</button><input data-ei="${k}" data-f="qtd" value="${esc(i.qtd)}" inputmode="numeric"><button data-eq="${k}|1" title="Mais 1">+</button></div>
+        <div class="e04-preco">× R$<input data-ei="${k}" data-f="cu" value="${esc(i.cu)}" inputmode="decimal" placeholder="0,00" title="Preço de compra por unidade"></div>
+        <div class="e04-sub" id="e_sub${k}">${c.ok?brl(c.sub):'—'}</div>
+        <button class="x" data-erm="${k}" title="Remover">✕</button></div>`;}).join('')}</div>
+      <div class="e04-totm"><span>Total das mercadorias · ${R.itens.length} produto(s) · ${un(C.qt)} un.</span><b id="e_totm">${brl(C.S)}</b></div>`
+      :'<div class="e04-vazio"><b>Nenhum produto ainda</b>Digite o nome do produto acima ou bipe o código de barras. Cada leitura do mesmo código soma 1 unidade.</div>'}
+      <div class="e04-rod"><div class="campo"><label>Data</label><input id="e_data" type="date" value="${esc(R.data)}"></div><div class="campo"><label>Observação</label><input id="e_obs" value="${esc(R.obs)}" placeholder="Opcional"></div></div>`;
     }else if(R.aba==='desp'){
       const d=R.desp;
       corpo=`<div class="total">Base do acerto: total das mercadorias, antes do transporte e das taxas = <b id="e_acb">${brl(C.S)}</b></div>
@@ -1300,7 +1330,7 @@ function e04Entrada(){
     }else{
       corpo=R.itens.length?e04TabCusto(R,C,false)+(C.ok?'':'<div class="warn">'+(C.erro||'Informe quantidade e preço de compra de todos os produtos na aba Mercadorias.')+'</div>'):'<div class="vazio">Nenhum produto lançado ainda.</div>';
     }
-    abrir(`<h2>📦 Entrada no Estoque 04</h2><div class="sub">Rascunho salvo automaticamente: pode trocar de aba ou fechar. O saldo só muda ao confirmar.</div>
+    abrir(`<h2>📦 Entrada no Estoque 04</h2><div class="sub">Rascunho salvo automaticamente. O saldo só muda ao confirmar.</div>
     <div class="seg" style="margin-bottom:10px;flex-wrap:wrap">${ABAS.map(([k,l])=>`<button class="${R.aba===k?'on':''}" data-eaba="${k}">${l}</button>`).join('')}</div>
     ${corpo}
     <div class="total" id="e_res">${R.itens.length} produto(s) · ${un(C.qt)} un. · mercadoria ${brl(C.S)} · custo do pedido ${brl(C.tot)}</div><div class="erro"></div>
@@ -1309,6 +1339,8 @@ function e04Entrada(){
     M.querySelectorAll('[data-eaba]').forEach(b=>b.onclick=()=>{R.aba=b.dataset.eaba;salvar();desenhar();});
     if(R.aba==='merc'){
       const cod=$('e_cod');cod.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key==='Tab'){e.preventDefault();const v=cod.value;cod.value='';ler(v);}});
+      $('e_busca').addEventListener('keydown',e=>{const v=e.target.value.trim();if(e.key==='Enter'&&/^\d{6,}$/.test(v)){e.preventDefault();e.stopImmediatePropagation();e.target.value='';$('e_sug').classList.add('hidden');ler(v);}},true);
+      M.querySelectorAll('[data-eq]').forEach(b=>b.onclick=()=>{const [k,d]=b.dataset.eq.split('|').map(Number),i=R.itens[k];i.qtd=Math.max(1,(+i.qtd||0)+d);salvar();desenhar();});
       M.querySelectorAll('[data-ei]').forEach(inp=>{inp.addEventListener('input',()=>{const i=R.itens[+inp.dataset.ei];if(inp.dataset.f==='qtd')i.qtd=Math.max(0,Math.floor(num(inp.value)||0));else i.cu=inp.value;salvar();atualiza();});
         inp.addEventListener('change',()=>desenhar());});
       M.querySelectorAll('[data-erm]').forEach(b=>b.onclick=()=>{R.itens.splice(+b.dataset.erm,1);salvar();desenhar();});
