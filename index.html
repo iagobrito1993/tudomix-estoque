@@ -167,7 +167,7 @@ const SUPABASE_URL='https://rxqlkfzsvoqydqqzffih.supabase.co';
 const SUPABASE_KEY='sb_publishable__IZIszN0QheZChaDwqVA8A_vlQnP9tw';
 const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
 
-const PAPEIS={admin:'Administrador',estoque:'Estoque',socio:'Sócio (só visualização)',cliente:'Cliente (vê só os envios dele)',e04:'Só Estoque 04'};
+const PAPEIS={admin:'Administrador',estoque:'Estoque',socio:'Sócio (só visualização)',cliente:'Cliente (vê só os envios dele)',e04:'Estoque 04 (só o Estoque 04)'};
 const MODS={flex:'Flex',full:'Full',agencia:'Agência'};
 let sessao=null,perfil=null,aba=null,busca='',filtroEst='com',filtroSai={conta:'',mod:'',status:'ativa'},D={produtos:[],contas:[],entradas:[],saidas:[],perfis:[],ajustes:[],notas:[],cp:[],pf:[]},modoLogin='entrar',carregando=false,limite=150;
 
@@ -434,7 +434,7 @@ function abaUsuarios(){
   return `<div class="total" style="margin-top:10px">Para dar acesso a alguém: peça para a pessoa abrir este site e tocar em <b>Criar conta</b>. Depois ela aparece aqui e você escolhe o acesso.</div>
   <div class="lista">${D.perfis.map(p=>`<div class="card"><div><div class="t">${esc(p.nome||'')}</div><div class="meta">${esc(p.email||'')}</div>${p.papel?'':'<div class="warn">Aguardando liberação</div>'}${p.papel==='cliente'?`<div class="meta" style="margin-top:6px">Contas que este cliente vê:</div><div class="ccs">${D.contas.map(c=>`<button class="${(p.contas||[]).includes(c.id)?'on':''}" data-cc="${p.user_id}|${c.id}">${esc(c.nome)}</button>`).join('')||'<span class="meta">Cadastre as contas primeiro.</span>'}</div>`:''}</div>
     <div><select data-papel="${p.user_id}" style="min-width:150px"><option value="">Sem acesso</option>${Object.entries(PAPEIS).map(([k,l])=>`<option value="${k}" ${p.papel===k?'selected':''}>${l}</option>`).join('')}</select></div></div>`).join('')}</div>
-  <div class="meta" style="margin-top:10px"><b>Administrador:</b> vê e faz tudo, inclusive custo, ajustes e contas. <b>Estoque:</b> lança entradas e saídas e anexa fotos e etiquetas, sem ver custo. <b>Sócio:</b> vê tudo, inclusive custo e contas a pagar, e não altera nada. <b>Cliente:</b> vê só os envios (saídas) das contas marcadas para ele, sem custo e sem o resto do estoque.</div>`;
+  <div class="meta" style="margin-top:10px"><b>Administrador:</b> vê e faz tudo, inclusive custo, ajustes e contas. <b>Estoque:</b> lança entradas e saídas e anexa fotos e etiquetas, sem ver custo. <b>Sócio:</b> vê tudo, inclusive custo e contas a pagar, e não altera nada. <b>Cliente:</b> vê só os envios (saídas) das contas marcadas para ele, sem custo e sem o resto do estoque. <b>Estoque 04:</b> vê e opera só o Estoque 04 (entradas, despachos e solicitações), sem nenhuma outra aba, custo ou dado do sistema.</div>`;
 }
 let filtroAc='';
 function abaAcessos(){
