@@ -184,13 +184,40 @@ input:focus,select:focus,textarea:focus{outline:2px solid #9a9a95}
 .leitor label{font-size:14px}.leitor.prod input{border:2px solid #2563eb;background:#eff6ff;font-size:18px;padding:12px;font-family:ui-monospace,monospace}.leitor.etq input{border:2px solid #d97706;background:#fffbeb;font-size:18px;padding:12px;font-family:ui-monospace,monospace}.leitor.prod label{color:#1e40af}.leitor.etq label{color:#92400e}
 .codigo{font-family:ui-monospace,Menlo,monospace;letter-spacing:.02em}
 .ccs{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}.ccs button{border-radius:99px;padding:4px 10px;font-size:12px}.ccs button.on{background:var(--pri);color:#fff;border-color:var(--pri)}
+
+/* ADM TudoMix — layout */
+.abas{scrollbar-width:none}.abas::-webkit-scrollbar{display:none}
+@media(min-width:760px){.abas{flex-wrap:wrap;overflow:visible}}
+.abas-sub{padding-top:2px;gap:4px;border-bottom:1px solid var(--line);padding-bottom:8px;margin-bottom:4px}
+.abas-sub button{padding:6px 12px;font-size:13px;border-color:transparent;background:transparent}
+.abas-sub button.on{background:var(--ink);color:#fff}
+.adm-cab{display:flex;align-items:center;justify-content:space-between;margin:8px 0 2px}
+.adm-cab b{font-size:20px;display:block}.adm-cab span{font-size:13px;color:var(--mut)}
+.adm-filtros{display:flex;gap:8px;flex-wrap:wrap;align-items:center;background:#fff;border:1px solid var(--line);border-radius:12px;padding:8px 10px;margin:10px 0}
+.adm-filtros select,.adm-filtros input{border:1px solid var(--line)}
+.adm-filtros .chips{margin-left:auto}
+.adm-acoes{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+.adm-at{background:#fff;border:1px solid var(--line);border-radius:12px;margin:10px 0;overflow:hidden}
+.adm-at h4{margin:10px 14px 6px;font-size:12px;color:var(--mut);text-transform:uppercase;letter-spacing:.05em}
+.adm-at .it{display:flex;align-items:center;gap:10px;padding:10px 14px;border-top:1px solid var(--line);cursor:pointer;font-size:14px}
+.adm-at .it:hover{background:#fafaf9}.adm-at .it.ok{cursor:default}
+.adm-at .q{min-width:30px;height:24px;border-radius:99px;background:#fee2e2;color:var(--red);font-weight:700;display:inline-flex;align-items:center;justify-content:center;font-size:12px;padding:0 8px;flex:none}
+.adm-at .q.am{background:#fef3c7;color:#92400e}.adm-at .q.cz{background:#f1f1ef;color:var(--mut)}.adm-at .q.ok{background:#dcfce7;color:#166534}
+.adm-at .vai{margin-left:auto;color:var(--mut);font-size:13px;white-space:nowrap}
+.adm-at .dica{padding:8px 14px;border-top:1px solid var(--line)}
+.adm-kpis{grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}
+.adm-kpis .kpi{padding:14px 16px}.adm-kpis .kpi .n{font-size:24px}.adm-kpis .kpi .l{font-size:13px}
+.resumo.mini{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+.resumo.mini .kpi{border-left-width:3px;padding:8px 12px}.resumo.mini .kpi .n{font-size:16px}
+.dica{font-size:12px;color:var(--mut);margin:4px 2px 8px}
+.adm-sec{margin-top:18px}
 </style>
 </head>
 <body>
 <div id="app"><div class="login"><img class="logo-img" src="logo.png" alt="Tudo Mix"><h1>Tudo Mix Estoque</h1><div class="sub">Carregando…</div></div></div>
 <div id="ov" class="ov hidden"><div id="modal" class="modal"></div></div>
 <div id="toast" class="toast hidden"></div>
-<script src="adm.js?v=1"></script>
+<script src="adm.js?v=2"></script>
 <script>
 const SUPABASE_URL='https://rxqlkfzsvoqydqqzffih.supabase.co';
 const SUPABASE_KEY='sb_publishable__IZIszN0QheZChaDwqVA8A_vlQnP9tw';
@@ -415,7 +442,7 @@ function render(){
   const abas=abasDoPapel();if(!abas.find(x=>x[0]===aba))aba=abas[0][0];
   const conteudo={estoque:abaEstoque,e04:abaE04,notas:abaNotas,pagar:abaPagar,saidas:abaSaidas,entradas:abaEntradas,relatorio:abaRelatorio,contas:abaContas,usuarios:abaUsuarios,acessos:abaAcessos,e19meu:()=>e19PagEstoque(false),e19sol:e19PagSolic,e19adm:abaE19Adm,adm:abaADM}[aba]();
   const ativo=document.activeElement&&document.activeElement.id==='busca';const pos=ativo?document.activeElement.selectionStart:0;
-  $('app').innerHTML=`<div class="topo"><div class="wrap"><div class="marca">${LOGO}<div>${perfil.papel==='e19'?'Estoque 19<small>Meu estoque · Solicitações de compra</small>':perfil.papel==='adm'?'ADM TudoMix<small>Notas · Despesas · Ponto · Fechamentos</small>':'Estoque<small>Notas · Entradas · Saídas · Contas a pagar</small>'}</div></div>
+  $('app').innerHTML=`<div class="topo"><div class="wrap"><div class="marca">${LOGO}<div>${aba==='adm'&&perfil.papel!=='adm'?'ADM TudoMix<small>Notas · Despesas · Ponto · Fechamentos</small>':perfil.papel==='e19'?'Estoque 19<small>Meu estoque · Solicitações de compra</small>':perfil.papel==='adm'?'ADM TudoMix<small>Notas · Despesas · Ponto · Fechamentos</small>':'Estoque<small>Notas · Entradas · Saídas · Contas a pagar</small>'}</div></div>
     <div class="quem"><span>${esc(perfil.nome||perfil.email)}</span><span class="badge b-pap">${PAPEIS[perfil.papel]}</span>
     <button class="small" data-act="atualizar">Atualizar</button><button class="small" data-act="sair">Sair</button></div></div></div>
     <div class="wrap"><nav class="abas">${abas.map(([k,l])=>`<button class="${aba===k?'on':''}" data-aba="${k}">${l}</button>`).join('')}</nav>${conteudo}</div>`;

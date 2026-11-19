@@ -94,20 +94,23 @@ function abaADM(){
   admIni();
   if(!ADM.ok)return `<div class="vazio" style="margin-top:14px">${ADM.erro==='banco'?'A página ADM TudoMix ainda não foi ativada no banco de dados. Assim que o administrador concluir a configuração, ela aparece aqui.':'Não foi possível carregar a página ADM. Toque em Atualizar.'}</div>`;
   if(!admPode())return `<div class="vazio" style="margin-top:14px">Seu usuário ainda não tem acesso à página ADM TudoMix. Peça a liberação ao Iago.</div>`;
-  const subs=[['geral','Visão geral'],['notas','Notas fiscais'],['movs','Despesas e movimentações'],['ponto','Ponto dos funcionários'],['rel','Relatórios diários e semanais'],['pend','Pendências e documentos']];
-  if(ADM.master)subs.push(['cfg','Acessos e histórico']);
+  const subs=[['geral','📊 Visão geral'],['notas','🧾 Notas fiscais'],['movs','💸 Despesas'],['ponto','⏱ Ponto'],['rel','📅 Relatórios'],['pend','📌 Pendências']];
+  if(ADM.master)subs.push(['cfg','⚙ Acessos']);
   const nPend=admPendLista().filter(p=>p.responsavel===(ADM.master?'iago':'juliana')).length;
   const conteudo={geral:admGeral,notas:admNotas,movs:admMovs,ponto:admPonto,rel:admRelatorio,pend:admPendencias,cfg:admConfig}[admSub]||admGeral;
-  return `<div class="e04-topo"><b>📋 ADM TudoMix</b> · ${ADM.master?'Administrador master — conferência':'Rotina administrativa'}${ADM.master?'':' · '+esc(ADM.eu?ADM.eu.nome:'')}</div>
-  <nav class="abas" style="padding-top:6px">${subs.map(([k,l])=>`<button class="${admSub===k?'on':''}" data-ad="sub|${k}">${l}${k==='pend'&&nPend?` <span class="badge b-venc">${nPend}</span>`:''}</button>`).join('')}</nav>
+  return `<div class="adm-cab"><div><b>ADM TudoMix</b><span>${ADM.master?'Conferência do administrador master':'Rotina administrativa · '+esc(ADM.eu?ADM.eu.nome:'')}</span></div></div>
+  <nav class="abas abas-sub">${subs.map(([k,l])=>`<button class="${admSub===k?'on':''}" data-ad="sub|${k}">${l}${k==='pend'&&nPend?` <span class="badge b-venc">${nPend}</span>`:''}</button>`).join('')}</nav>
   ${admSub==='cfg'?'':admFiltros()}${conteudo()}`;
 }
-function admFiltros(){const emps=admEmpsAtivas();
-  return `<div class="barra" style="align-items:center">
+function admPerAtivo(){const h=hoje();const [a,b]=admSemana(h);const d=admDt(h);d.setDate(d.getDate()-7);const [c,e]=admSemana(admIso(d));
+  const m1=h.slice(0,8)+'01';const dm=admDt(m1);dm.setMonth(dm.getMonth()+1);dm.setDate(0);
+  if(admF.de===h&&admF.ate===h)return 'hoje';if(admF.de===a&&admF.ate===b)return 'sem';if(admF.de===c&&admF.ate===e)return 'ant';if(admF.de===m1&&admF.ate===admIso(dm))return 'mes';return '';}
+function admFiltros(){const emps=admEmpsAtivas();const pa=admPerAtivo();
+  return `<div class="adm-filtros">
     <select id="adf_emp" style="max-width:200px">${emps.length>1?'<option value="">Todas as empresas</option>':''}${admOpts(emps,admF.emp)}</select>
     <select id="adf_uni" style="max-width:200px"><option value="">Todas as unidades</option>${admOpts(admUnisDe(admF.emp),admF.uni,null,u=>emps.length>1&&!admF.emp?admEmp(u.empresa_id).nome+' · '+u.nome:u.nome)}</select>
     <label class="meta">De</label><input id="adf_de" type="date" value="${admF.de}" style="max-width:150px"><label class="meta">até</label><input id="adf_ate" type="date" value="${admF.ate}" style="max-width:150px">
-    <div class="chips"><button data-ad="per|hoje">Hoje</button><button data-ad="per|sem">Esta semana</button><button data-ad="per|ant">Semana passada</button><button data-ad="per|mes">Este mês</button></div></div>`;}
+    <div class="chips">${[['hoje','Hoje'],['sem','Esta semana'],['ant','Semana passada'],['mes','Este mês']].map(([k,l])=>`<button class="${pa===k?'on':''}" data-ad="per|${k}">${l}</button>`).join('')}</div></div>`;}
 
 // ---------- Visão geral ----------
 function admKpi(id,n,l,alerta){return `<div class="kpi clk${alerta?' kv':''}" data-ad="kpi|${id}"><div class="n">${n}</div><div class="l">${l}</div></div>`;}
@@ -117,26 +120,38 @@ function admGeral(){
   const fSem=ADM.fech.find(f=>(!admF.emp||f.empresa_id===+admF.emp)&&f.de===sa&&f.ate===sb_);
   const pend=admPendLista();const pj=pend.filter(p=>p.responsavel==='juliana').length,pi=pend.filter(p=>p.responsavel==='iago').length;
   const dias=admF.emp?admDias(admF.de,admF.ate>hoje()?hoje():admF.ate).filter(d=>{const i=admDiaInfo(admF.emp,admF.uni,d);return !i.n&&!i.sem;}):[];
-  return `<div class="resumo">
-    ${admKpi('notas',un(C.nv.length),'Notas lançadas · '+brl(C.vNotas))}
-    ${admKpi('pagas',brl(C.vPagas),'Despesas pagas ('+C.pagas.length+')')}
-    ${admKpi('aberto',brl(C.vAberto),'Despesas em aberto ('+(C.abMov.length+C.abNotas.length)+')',C.vAberto>0)}
-    ${admKpi('semdoc',un(C.semDocMov.length+C.semDocNota.length),'Lançamentos sem comprovante',C.semDocMov.length+C.semDocNota.length>0)}
-    ${admKpi('ponto',un(C.pontoPend.length),'Pendências de ponto',C.pontoPend.length>0)}
-    <div class="kpi clk" data-ad="sub|rel"><div class="n" style="font-size:15px;padding-top:4px">${fSem?admFBadge(fSem.status):'<span class="badge b-hoje">Não gerado</span>'}</div><div class="l">Relatório desta semana (${fd(sa).slice(0,5)}–${fd(sb_).slice(0,5)})</div></div>
+  const semDoc=C.semDocMov.length+C.semDocNota.length,nAb=C.abMov.length+C.abNotas.length;
+  const meu=ADM.master?pi:pj,outro=ADM.master?pj:pi,nomeOutro=ADM.master?'Juliana':'Iago';
+  // o que precisa de atenção (só aparece o que tem)
+  const at=[];const it=(ad,q,txt,cor)=>at.push(`<div class="it" data-ad="${ad}"><span class="q ${cor||''}">${q}</span><span>${txt}</span><span class="vai">Abrir ›</span></div>`);
+  if(meu)it('pendf|'+(ADM.master?'iago':'juliana'),meu,meu===1?'pendência aguardando <b>você</b>':'pendências aguardando <b>você</b>');
+  if(ADM.master&&fSem&&fSem.status==='enviado')it('sub|rel','1','Relatório da semana enviado — <b>aguardando sua conferência</b>');
+  if(!ADM.master&&fSem&&fSem.status==='devolvido')it('sub|rel','1','Relatório da semana <b>devolvido para ajuste</b>');
+  if(dias.length)it('sub|rel',dias.length,(dias.length===1?'dia sem lançamento':'dias sem lançamento')+' e sem "Sem movimentação": '+dias.map(d=>fd(d).slice(0,5)+' ('+admDiaSem(d)+')').join(', '),'am');
+  if(semDoc)it('kpi|semdoc',semDoc,semDoc===1?'lançamento sem comprovante':'lançamentos sem comprovante','am');
+  if(C.pontoPend.length)it('kpi|ponto',C.pontoPend.length,C.pontoPend.length===1?'pendência de ponto':'pendências de ponto','am');
+  if(nAb)it('kpi|aberto',nAb,'despesa(s) em aberto · <b>'+brl(C.vAberto)+'</b>','am');
+  if(!fSem)it('sub|rel','—','Relatório desta semana ('+fd(sa).slice(0,5)+'–'+fd(sb_).slice(0,5)+') ainda <b>não gerado</b>','cz');
+  const pode=!(ADM.master&&!ADM.eu);
+  return `${pode?`<div class="adm-acoes"><button class="primary" data-ad="novo|nota">+ Nota fiscal</button><button class="primary" data-ad="novo|mov">+ Despesa / movimentação</button><button class="primary" data-ad="novo|ponto">+ Ponto</button></div>`:''}
+  <div class="adm-at"><h4>${at.length?'Precisa de atenção':'Situação do período'}</h4>${at.length?at.join(''):'<div class="it ok"><span class="q ok">✓</span><span>Tudo em dia neste período.</span></div>'}
+  ${admF.emp?'':'<div class="dica">Escolha uma empresa no filtro para ver também os dias sem lançamento.</div>'}</div>
+  <div class="resumo adm-kpis">
+    ${admKpi('despesas',brl(C.vDespesas),'Total de despesas')}
+    ${admKpi('pagas',brl(C.vPagas),'Pagas · '+C.pagas.length)}
+    ${admKpi('aberto',brl(C.vAberto),'Em aberto · '+nAb,C.vAberto>0)}
+    ${admKpi('notas',brl(C.vNotas),'Notas lançadas · '+C.nv.length)}
   </div>
-  <div class="resumo">
-    ${admKpi('entradas',brl(C.vEntradas),'Entradas ('+C.entradas.length+')')}
-    ${admKpi('transf',brl(C.vTransf),'Transferências ('+C.transf.length+')')}
-    ${admKpi('despesas',brl(C.vDespesas),'Total de despesas (pagas + em aberto)')}
+  <div class="resumo mini">
+    ${admKpi('entradas',brl(C.vEntradas),'Entradas · '+C.entradas.length)}
+    ${admKpi('transf',brl(C.vTransf),'Transferências · '+C.transf.length)}
     <div class="kpi clk" data-ad="pendf|juliana"><div class="n">${un(pj)}</div><div class="l">Pendências com a Juliana</div></div>
     <div class="kpi clk${pi?' kv':''}" data-ad="pendf|iago"><div class="n">${un(pi)}</div><div class="l">Pendências com o Iago</div></div>
+    <div class="kpi clk" data-ad="sub|rel"><div class="n">${fSem?admFBadge(fSem.status):'<span class="badge b-hoje">Não gerado</span>'}</div><div class="l">Relatório ${fd(sa).slice(0,5)}–${fd(sb_).slice(0,5)}</div></div>
   </div>
-  <div class="total">💡 Uma nota vinculada a um pagamento entra <b>uma única vez</b> no total de despesas: quando há pagamento, conta o pagamento; a nota só soma o saldo que ainda não foi pago.</div>
-  ${admF.emp?(dias.length?`<div class="ia-av">⚠ ${dias.length} dia(s) do período sem lançamento e sem confirmação de "Sem movimentação": ${dias.map(d=>fd(d).slice(0,5)+' ('+admDiaSem(d)+')').join(', ')}. Confirme em <button class="link" data-ad="sub|rel">Relatórios</button>.</div>`:''):'<div class="meta">Escolha uma empresa no filtro para ver os dias sem lançamento.</div>'}
-  <div class="barra" style="margin-top:12px">${ADM.master&&!ADM.eu?'':'<button class="primary" data-ad="novo|nota">+ Nota fiscal</button><button class="primary" data-ad="novo|mov">+ Despesa / movimentação</button><button class="primary" data-ad="novo|ponto">+ Ponto</button>'}</div>
-  <h3>Fechamentos do período</h3>${fs.length?`<div class="lista">${fs.map(admFechCard).join('')}</div>`:'<div class="meta">Nenhum fechamento gerado neste período.</div>'}
-  <h3>Últimos lançamentos do período</h3>${admListaMista(S,12)}`;
+  <div class="dica">ⓘ Nota vinculada a pagamento entra uma única vez no total: conta o pagamento, e a nota só soma o saldo ainda não pago.</div>
+  <div class="adm-sec"><h3>Últimos lançamentos</h3>${admListaMista(S,12)}</div>
+  <div class="adm-sec"><h3>Fechamentos do período</h3>${fs.length?`<div class="lista">${fs.map(admFechCard).join('')}</div>`:'<div class="vazio">Nenhum fechamento gerado neste período. <button class="link" data-ad="sub|rel">Gerar em Relatórios</button></div>'}</div>`;
 }
 function admListaMista(S,max){const L=[...S.notas.map(r=>['nota',r]),...S.movs.map(r=>['mov',r]),...S.ponto.map(r=>['ponto',r])].sort((a,b)=>(b[1].data_operacao+b[1].lancado_em).localeCompare(a[1].data_operacao+a[1].lancado_em));
   return L.length?`<div class="lista">${L.slice(0,max||9999).map(([t,r])=>admCard(t,r)).join('')}</div>${max&&L.length>max?`<div class="meta" style="margin-top:6px">… e mais ${L.length-max}. Veja nas abas.</div>`:''}`:'<div class="vazio">Nenhum lançamento no período.</div>';}
