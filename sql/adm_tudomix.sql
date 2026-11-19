@@ -224,6 +224,8 @@ begin
  end if;
 
  if p_id is null then
+   -- só as colunas informadas (as demais ficam com o valor padrão da tabela)
+   lista := array_to_string(array(select quote_ident(c) from unnest(cols) c where v_new ? c and jsonb_typeof(v_new->c)<>'null'), ',');
    execute format('insert into %I (%s) select %s from jsonb_populate_record(null::%I, $1) returning id', t, lista, lista, t) into v_id using v_new;
    insert into adm_historico(ref_tipo, ref_id, campo, depois, justificativa) values (p_tipo, v_id, 'criado', null, nullif(p_justificativa,''));
    return v_id;
