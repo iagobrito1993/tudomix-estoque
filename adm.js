@@ -98,8 +98,7 @@ function abaADM(){
   if(ADM.master)subs.push(['cfg','⚙ Acessos']);
   const nPend=admPendLista().filter(p=>p.responsavel===(ADM.master?'iago':'juliana')).length;
   const conteudo={geral:admGeral,notas:admNotas,movs:admMovs,ponto:admPonto,rel:admRelatorio,pend:admPendencias,cfg:admConfig}[admSub]||admGeral;
-  return `<div class="adm-cab"><div><b>ADM TudoMix</b><span>${ADM.master?'Conferência do administrador master':'Rotina administrativa · '+esc(ADM.eu?ADM.eu.nome:'')}</span></div></div>
-  <nav class="abas abas-sub">${subs.map(([k,l])=>`<button class="${admSub===k?'on':''}" data-ad="sub|${k}">${l}${k==='pend'&&nPend?` <span class="badge b-venc">${nPend}</span>`:''}</button>`).join('')}</nav>
+  return `<nav class="abas abas-sub">${subs.map(([k,l])=>`<button class="${admSub===k?'on':''}" data-ad="sub|${k}">${l}${k==='pend'&&nPend?` <span class="badge b-venc">${nPend}</span>`:''}</button>`).join('')}</nav>
   ${admSub==='cfg'?'':admFiltros()}${conteudo()}`;
 }
 function admPerAtivo(){const h=hoje();const [a,b]=admSemana(h);const d=admDt(h);d.setDate(d.getDate()-7);const [c,e]=admSemana(admIso(d));
@@ -107,9 +106,9 @@ function admPerAtivo(){const h=hoje();const [a,b]=admSemana(h);const d=admDt(h);
   if(admF.de===h&&admF.ate===h)return 'hoje';if(admF.de===a&&admF.ate===b)return 'sem';if(admF.de===c&&admF.ate===e)return 'ant';if(admF.de===m1&&admF.ate===admIso(dm))return 'mes';return '';}
 function admFiltros(){const emps=admEmpsAtivas();const pa=admPerAtivo();
   return `<div class="adm-filtros">
-    <select id="adf_emp" style="max-width:200px">${emps.length>1?'<option value="">Todas as empresas</option>':''}${admOpts(emps,admF.emp)}</select>
-    <select id="adf_uni" style="max-width:200px"><option value="">Todas as unidades</option>${admOpts(admUnisDe(admF.emp),admF.uni,null,u=>emps.length>1&&!admF.emp?admEmp(u.empresa_id).nome+' · '+u.nome:u.nome)}</select>
-    <label class="meta">De</label><input id="adf_de" type="date" value="${admF.de}" style="max-width:150px"><label class="meta">até</label><input id="adf_ate" type="date" value="${admF.ate}" style="max-width:150px">
+    <select id="adf_emp" style="max-width:170px">${emps.length>1?'<option value="">Todas as empresas</option>':''}${admOpts(emps,admF.emp)}</select>
+    <select id="adf_uni" style="max-width:170px"><option value="">Todas as unidades</option>${admOpts(admUnisDe(admF.emp),admF.uni,null,u=>emps.length>1&&!admF.emp?admEmp(u.empresa_id).nome+' · '+u.nome:u.nome)}</select>
+    <label class="meta">De</label><input id="adf_de" type="date" value="${admF.de}" style="max-width:140px"><label class="meta">até</label><input id="adf_ate" type="date" value="${admF.ate}" style="max-width:140px">
     <div class="chips">${[['hoje','Hoje'],['sem','Esta semana'],['ant','Semana passada'],['mes','Este mês']].map(([k,l])=>`<button class="${pa===k?'on':''}" data-ad="per|${k}">${l}</button>`).join('')}</div></div>`;}
 
 // ---------- Visão geral ----------
@@ -121,7 +120,7 @@ function admGeral(){
   const pend=admPendLista();const pj=pend.filter(p=>p.responsavel==='juliana').length,pi=pend.filter(p=>p.responsavel==='iago').length;
   const dias=admF.emp?admDias(admF.de,admF.ate>hoje()?hoje():admF.ate).filter(d=>{const i=admDiaInfo(admF.emp,admF.uni,d);return !i.n&&!i.sem;}):[];
   const semDoc=C.semDocMov.length+C.semDocNota.length,nAb=C.abMov.length+C.abNotas.length;
-  const meu=ADM.master?pi:pj,outro=ADM.master?pj:pi,nomeOutro=ADM.master?'Juliana':'Iago';
+  const meu=ADM.master?pi:pj;
   // o que precisa de atenção (só aparece o que tem)
   const at=[];const it=(ad,q,txt,cor)=>at.push(`<div class="it" data-ad="${ad}"><span class="q ${cor||''}">${q}</span><span>${txt}</span><span class="vai">Abrir ›</span></div>`);
   if(meu)it('pendf|'+(ADM.master?'iago':'juliana'),meu,meu===1?'pendência aguardando <b>você</b>':'pendências aguardando <b>você</b>');
