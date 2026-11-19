@@ -162,7 +162,8 @@ function admLista(titulo,I){
 function admBusca(ph){return `<div class="barra"><input id="adf_q" type="search" placeholder="${ph}" value="${esc(admQ)}"></div>`;}
 function admBate(...c){const q=norm(admQ.trim());return !q||q.split(/\s+/).every(w=>norm(c.join(' ')).includes(w));}
 function admNotas(){const S=admSel();const L=S.notas.filter(n=>admBate(n.numero,n.serie,n.fornecedor,n.fornecedor_cnpj,n.chave,n.obs));const C=admCalc(S);
-  return `<div class="barra"><button class="primary" data-ad="novo|nota">+ Lançar nota fiscal</button></div>
+  const nPx=ADM.notas.filter(r=>r.status!=='cancelado'&&admPrecisaPuxar('nota',r.id)).length;
+  return `<div class="barra"><button class="primary" data-ad="novo|nota">+ Lançar nota fiscal</button>${nPx?`<button data-ad="puxar|">⬇ Puxar PDFs do Drive (${nPx})</button>`:''}</div>
   <div class="resumo">${admKpi('notas',un(C.nv.length),'Notas no período · '+brl(C.vNotas))}${admKpi('aberto',brl(C.vAbNotas),'Saldo de notas sem pagamento')}${admKpi('semdoc',un(C.semDocNota.length),'Notas sem arquivo',C.semDocNota.length>0)}</div>
   ${admBusca('Buscar número, fornecedor, CNPJ ou chave…')}<div class="lista">${L.length?L.map(r=>admCard('nota',r)).join(''):'<div class="vazio">Nenhuma nota no período.</div>'}</div>`;}
 function admMovs(){const S=admSel();const C=admCalc(S);const L=S.movs.filter(m=>(!admMovF||m.tipo===admMovF)&&admBate(m.descricao,m.categoria,m.favorecido,m.responsavel,m.conta_origem,m.obs));
@@ -198,6 +199,7 @@ function admHistHTML(tipo,id){const H=ADM.hist.filter(h=>h.ref_tipo===tipo&&h.re
   return H.length?`<div class="scroll"><table class="planilha"><tr><th>Quando</th><th>Quem</th><th>Campo</th><th>Antes</th><th>Depois</th><th>Justificativa</th></tr>${H.map(h=>`<tr><td>${fts(h.em)}</td><td>${esc(admPessoa(h.user_id))}</td><td>${esc(h.campo||'')}</td><td>${esc(h.antes??'')}</td><td>${esc(h.depois??'')}</td><td style="white-space:normal">${esc(h.justificativa||'')}</td></tr>`).join('')}</table></div>`:'<div class="meta">Sem alterações registradas.</div>';}
 function admDocsHTML(tipo,id,podeAnexar){const D_=admDocs(tipo,id);
   return `${D_.length?D_.map(d=>`<div class="enc"><button class="link" data-ad="doc|${d.id}">${d.tipo==='drive'?'🔗':'📄'} ${esc(d.nome)}</button><span><span class="badge b-can">${d.tipo==='drive'?'Link do Drive':'Arquivo'}</span> ${podeAnexar?`<button class="small danger" data-adrdoc="${d.id}">Remover</button>`:''}</span></div>`).join(''):'<div class="semfoto">Nenhum documento anexado.</div>'}
+  ${podeAnexar&&admPrecisaPuxar(tipo,id)?`<button class="small primary" id="adv_puxar" style="margin-top:8px">⬇ Puxar arquivo do Drive</button>`:''}
   ${podeAnexar?`<div class="duas" style="margin-top:8px"><div><label class="small btnf">📎 Anexar arquivo (PDF, foto, XML)<input id="adv_arq" type="file" accept="image/*,application/pdf,.xml,text/xml" multiple class="hidden"></label></div>
   <div style="display:flex;gap:6px"><input id="adv_link" placeholder="Colar link do Google Drive"><button class="small" id="adv_addlink">Vincular</button></div></div>`:''}`;}
 function admPodeEditar(r){return r.status!=='cancelado'&&(ADM.master||(!!ADM.eu&&r.status!=='aprovado'));}
@@ -224,6 +226,7 @@ function admVer(tipo,id){
   M.querySelectorAll('[data-adrdoc]').forEach(b=>b.onclick=()=>admPedirTexto('Remover documento','O arquivo continua guardado e a remoção fica registrada no histórico.','Motivo da remoção','Remover',async j=>{await rpc('adm_remover_doc',{p_id:+b.dataset.adrdoc,p_justificativa:j});await admRecarregar();admVer(tipo,id);}));
   admLigarPendBtns(M,()=>admVer(tipo,id));
   if($('adv_arq'))$('adv_arq').onchange=()=>rodar($('adv_arq').parentElement,async()=>{let j=null;if(trav)j=await admJust();for(const f of $('adv_arq').files)await admSubir(tipo,r.id,f,j);await admRecarregar();toast('Documento anexado.');admVer(tipo,id);});
+  if($('adv_puxar'))$('adv_puxar').onclick=()=>{const b=$('adv_puxar');const tk=googleToken();rodar(b,async()=>{await tk;let j=null;if(trav)j='Arquivo puxado do Google Drive (link já vinculado)';const n=await admPuxarDrive(tipo,r.id,j);await admRecarregar();toast(n+' arquivo(s) puxado(s) do Drive.');admVer(tipo,id);});};
   if($('adv_addlink'))$('adv_addlink').onclick=()=>rodar($('adv_addlink'),async()=>{const u=val('adv_link');if(!u)throw new Error('Cole o link do Google Drive.');let j=null;if(trav)j=await admJust();
     await rpc('adm_anexar',{p_ref_tipo:tipo,p_ref_id:r.id,p_tipo:'drive',p_nome:admNomeLink(u),p_caminho:null,p_url:u,p_tamanho:null,p_categoria:null,p_justificativa:j});await admRecarregar();toast('Link vinculado.');admVer(tipo,id);});
   if($('adv_pag'))$('adv_pag').onclick=()=>admForm('mov',null,{tipo:'pagamento',nota_id:r.id,empresa_id:r.empresa_id,unidade_id:r.unidade_id,valor:admNotaSaldo(r),favorecido:r.fornecedor,descricao:'Pagamento '+admTitulo('nota',r)});
@@ -234,6 +237,35 @@ function admVer(tipo,id){
   if($('adv_cr1'))$('adv_cr1').onclick=()=>rodar($('adv_cr1'),async()=>{await rpc('adm_ponto_decidir',{p_id:r.id,p_aprovar:true,p_obs:null});await admRecarregar();admVer(tipo,id);});
   if($('adv_cr0'))$('adv_cr0').onclick=()=>admPedirTexto('Recusar correção','','Motivo','Recusar',async j=>{await rpc('adm_ponto_decidir',{p_id:r.id,p_aprovar:false,p_obs:j});await admRecarregar();admVer(tipo,id);});
 }
+// ---------- puxar arquivo do Google Drive (login Google, pasta continua privada) ----------
+const GOOGLE_CLIENT_ID='943162072307-9t4cvv222i645glf3l0bl6e77tp0stja.apps.googleusercontent.com';
+let _gTok=null,_gTokExp=0;
+function driveId(u){const m=String(u||'').match(/\/d\/([\w-]{20,})|[?&]id=([\w-]{20,})/);return m?(m[1]||m[2]):null;}
+function googleToken(){return new Promise((ok,no)=>{
+  if(_gTok&&Date.now()<_gTokExp)return ok(_gTok);
+  if(!window.google||!google.accounts||!google.accounts.oauth2)return no(new Error('O login do Google ainda está carregando. Tente de novo em alguns segundos.'));
+  const c=google.accounts.oauth2.initTokenClient({client_id:GOOGLE_CLIENT_ID,scope:'https://www.googleapis.com/auth/drive.readonly',
+    callback:r=>{if(r.error)return no(new Error('O Google não autorizou: '+r.error));_gTok=r.access_token;_gTokExp=Date.now()+((+r.expires_in||3600)-60)*1000;ok(_gTok);},
+    error_callback:()=>no(new Error('Login do Google cancelado ou bloqueado pelo navegador (libere pop-ups do site).'))});
+  c.requestAccessToken({prompt:''});});}
+async function driveBaixar(u){const id=driveId(u);if(!id)throw new Error('Link do Drive inválido: '+u);
+  const t=await googleToken();const H={Authorization:'Bearer '+t};
+  const m=await fetch('https://www.googleapis.com/drive/v3/files/'+id+'?fields=name,mimeType&supportsAllDrives=true',{headers:H});
+  if(!m.ok)throw new Error('Sem acesso ao arquivo no Drive ('+m.status+'). Entre com a conta Google que vê a pasta.');
+  const meta=await m.json();if(/^application\/vnd\.google-apps/.test(meta.mimeType||''))throw new Error('"'+meta.name+'" é um documento do Google, não um arquivo PDF/foto.');
+  const b=await fetch('https://www.googleapis.com/drive/v3/files/'+id+'?alt=media&supportsAllDrives=true',{headers:H});
+  if(!b.ok)throw new Error('Falha ao baixar "'+meta.name+'" do Drive ('+b.status+').');
+  return new File([await b.blob()],meta.name||'arquivo.pdf',{type:meta.mimeType||'application/pdf'});}
+function admPrecisaPuxar(tipo,id){const D_=admDocs(tipo,id);return D_.some(d=>d.tipo==='drive'&&driveId(d.url))&&!D_.some(d=>d.tipo==='arquivo');}
+async function admPuxarDrive(tipo,id,just){let n=0;for(const d of admDocs(tipo,id).filter(d=>d.tipo==='drive'&&driveId(d.url))){const f=await driveBaixar(d.url);await admSubir(tipo,id,f,just);n++;}return n;}
+async function admPuxarTodas(btn){const L=ADM.notas.filter(r=>r.status!=='cancelado'&&admPrecisaPuxar('nota',r.id));
+  if(!L.length){toast('Nenhuma nota com link do Drive sem arquivo.');return;}
+  btn.disabled=true;const txt=btn.textContent;let ok=0;const erros=[];
+  try{await googleToken();}catch(e){btn.disabled=false;toast(e.message);return;}
+  for(const r of L){btn.textContent='Puxando '+(ok+erros.length+1)+'/'+L.length+'…';
+    try{await admPuxarDrive('nota',r.id,r.enviado_em?'Arquivo puxado do Google Drive (link já vinculado)':null);ok++;}catch(e){erros.push(admTitulo('nota',r)+': '+(e.message||e));}}
+  await admRecarregar();toast(ok+' nota(s) com arquivo puxado do Drive'+(erros.length?' · '+erros.length+' com erro':'')+'.');
+  if(erros.length)alert('Não foi possível puxar:\n\n'+erros.join('\n'));btn.disabled=false;btn.textContent=txt;}
 function admNomeLink(u){try{const x=new URL(u);return 'Drive: '+(x.pathname.split('/').filter(Boolean).slice(0,3).join('/'));}catch(e){return 'Link do Drive';}}
 function admPedirTexto(titulo,sub,label,btn,fn,extra){
   abrir(`<h2>${esc(titulo)}</h2>${sub?`<div class="sub">${esc(sub)}</div>`:''}<div class="campo"><label>${esc(label)}</label><textarea id="apt_t"></textarea></div>${extra||''}<div class="erro"></div><div class="rodape"><button id="cx">Voltar</button><button class="primary" id="ok">${esc(btn)}</button></div>`);
@@ -522,6 +554,7 @@ document.addEventListener('click',async e=>{
   if(a==='per'){const h=hoje();if(x==='hoje'){admF.de=h;admF.ate=h;}if(x==='sem'){[admF.de,admF.ate]=admSemana(h);}if(x==='ant'){const d=admDt(h);d.setDate(d.getDate()-7);[admF.de,admF.ate]=admSemana(admIso(d));}if(x==='mes'){admF.de=h.slice(0,8)+'01';const d=admDt(admF.de);d.setMonth(d.getMonth()+1);d.setDate(0);admF.ate=admIso(d);}render();return;}
   if(a==='kpi'){admKpiAbrir(x);return;}
   if(a==='novo'){admForm(x,null);return;}
+  if(a==='puxar'){admPuxarTodas(t);return;}
   if(a==='movf'){admMovF=x;render();return;}
   if(a==='pendf'){admPF=x;admSub='pend';render();return;}
   if(a==='func'){admFuncForm(x?+x:null);return;}
