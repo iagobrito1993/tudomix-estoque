@@ -190,12 +190,13 @@ input:focus,select:focus,textarea:focus{outline:2px solid #9a9a95}
 <div id="app"><div class="login"><img class="logo-img" src="logo.png" alt="Tudo Mix"><h1>Tudo Mix Estoque</h1><div class="sub">Carregando…</div></div></div>
 <div id="ov" class="ov hidden"><div id="modal" class="modal"></div></div>
 <div id="toast" class="toast hidden"></div>
+<script src="adm.js?v=1"></script>
 <script>
 const SUPABASE_URL='https://rxqlkfzsvoqydqqzffih.supabase.co';
 const SUPABASE_KEY='sb_publishable__IZIszN0QheZChaDwqVA8A_vlQnP9tw';
 const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
 
-const PAPEIS={admin:'Administrador',estoque:'Estoque',socio:'Sócio (só visualização)',cliente:'Cliente (vê só os envios dele)',e04:'Estoque 04 (só o Estoque 04)',e19:'Estoque 19 (só o Estoque 19)'};
+const PAPEIS={admin:'Administrador',estoque:'Estoque',socio:'Sócio (só visualização)',cliente:'Cliente (vê só os envios dele)',e04:'Estoque 04 (só o Estoque 04)',e19:'Estoque 19 (só o Estoque 19)',adm:'ADM TudoMix (só a página ADM)'};
 const MODS={flex:'Flex',full:'Full',agencia:'Agência'};
 let sessao=null,perfil=null,aba=null,busca='',filtroEst='com',filtroSai={conta:'',mod:'',status:'ativa'},D={produtos:[],contas:[],entradas:[],saidas:[],perfis:[],ajustes:[],notas:[],cp:[],pf:[]},modoLogin='entrar',carregando=false,limite=150;
 
@@ -343,11 +344,13 @@ async function carregarPerfil(){
   perfil=data;if(!perfil||!perfil.papel)return telaPendente();
   if(perfil.papel==='cliente'){if(!window._logou){window._logou=1;log('entrou','Entrou no sistema (cliente)');}return carregarCliente();}
   if(perfil.papel==='e04')aba='e04';
+  if(perfil.papel==='adm')aba='adm';
   if(perfil.papel==='e19'&&!/^e19(meu|sol)$/.test(aba||''))aba='e19sol';
   if(!aba)aba='estoque';
   if(!window._logou){window._logou=1;log('entrou','Entrou no sistema');}
   await carregar();
   if(perfil.papel==='e19'&&!(sessao.user.user_metadata||{}).senha_definida)setTimeout(e19DefinirSenha,200);
+  if(perfil.papel==='adm'&&ADM_VIA_LINK&&!(sessao.user.user_metadata||{}).senha_definida)setTimeout(()=>modalCriarSenha('Bem-vinda à página ADM TudoMix','Crie sua senha para os próximos acessos (mínimo 6 caracteres).'),200);
 }
 
 // ---------- dados ----------
@@ -358,6 +361,11 @@ async function carregar(){
     try{const c=await sb.rpc('e19_catalogo');if(c.error)throw c.error;D.produtos=(c.data||[]).map(p=>({...p,estoque:null}));D.perfis=[];D.contas=[];D.entradas=[];D.saidas=[];D.ajustes=[];D.notas=[];D.cp=[];D.pf=[];
       E04={pode:false,dono:false,saldos:[],movs:[],itens:[],vols:[],sols:[],hist:[],cods:[],acesso:null};await carregarE19();}catch(e){console.error(e);toast('Não foi possível atualizar os dados.');}
     carregando=false;render();e19AbrirLink();return;
+  }
+  if(perfil&&perfil.papel==='adm'){ // conta só da página ADM TudoMix: não carrega estoque, custos nem outras áreas
+    D.produtos=[];D.perfis=[];D.contas=[];D.entradas=[];D.saidas=[];D.ajustes=[];D.notas=[];D.cp=[];D.pf=[];
+    E04={pode:false,dono:false,saldos:[],movs:[],itens:[],vols:[],sols:[],hist:[],cods:[],acesso:null};
+    await carregarADM();carregando=false;render();return;
   }
   if(perfil&&perfil.papel==='e04'){ // conta só do Estoque 04: não carrega nada do resto do sistema
     try{const [c,pe]=await Promise.all([sb.rpc('e04_catalogo'),sb.rpc('e04_pessoas')]);if(c.error)throw c.error;
@@ -380,6 +388,7 @@ async function carregar(){
     D.produtos=prods;D.contas=contas;D.entradas=ents;D.saidas=sais;D.perfis=perfis;D.ajustes=ajs;D.notas=nts;D.cp=cps;D.pf=pfs;
     try{await carregarE04();}catch(e){console.error(e);E04={pode:false,dono:false,saldos:[],movs:[],itens:[],vols:[],sols:[],hist:[],cods:[],acesso:null};}
     try{await carregarE19();}catch(e){console.error(e);}
+    if(E04.dono)await carregarADM();
     if(ehAdmin()){const x=await sb.from('acessos').select('*').order('id',{ascending:false}).limit(800);D.acessos=x.data||[];}
   }catch(e){console.error(e);toast('Não foi possível atualizar os dados.');}
   carregando=false;render();e19AbrirLink();
@@ -392,9 +401,11 @@ setInterval(()=>{if(perfil&&document.visibilityState==='visible')sb.rpc('pulso')
 function abasDoPapel(){
   if(perfil.papel==='e19')return [['e19meu','Meu estoque'],['e19sol','Solicitações de compra']];
   if(perfil.papel==='e04')return E04.pode?[['e04','🔒 Estoque 04']]:[['e04','Estoque 04']];
+  if(perfil.papel==='adm')return [['adm','📋 ADM TudoMix']];
   const a=[['estoque','Estoque'],['notas','Notas'],['entradas','Entradas'],['saidas','Saídas']];if(verCusto())a.push(['pagar','Contas a pagar']);a.push(['relatorio','Resumo por conta']);
   if(E04.pode)a.splice(1,0,['e04','🔒 Estoque 04']);
   if(E04.dono)a.splice(2,0,['e19adm','🏬 Estoque 19']);
+  if(E04.dono)a.splice(1,0,['adm','📋 ADM TudoMix']);
   if(ehAdmin()){a.push(['contas','Contas']);a.push(['usuarios','Usuários']);a.push(['acessos','Acessos']);}
   return a;
 }
@@ -402,9 +413,9 @@ function render(){
   if(!perfil||!perfil.papel)return;
   if(perfil.papel==='cliente')return renderCliente();
   const abas=abasDoPapel();if(!abas.find(x=>x[0]===aba))aba=abas[0][0];
-  const conteudo={estoque:abaEstoque,e04:abaE04,notas:abaNotas,pagar:abaPagar,saidas:abaSaidas,entradas:abaEntradas,relatorio:abaRelatorio,contas:abaContas,usuarios:abaUsuarios,acessos:abaAcessos,e19meu:()=>e19PagEstoque(false),e19sol:e19PagSolic,e19adm:abaE19Adm}[aba]();
+  const conteudo={estoque:abaEstoque,e04:abaE04,notas:abaNotas,pagar:abaPagar,saidas:abaSaidas,entradas:abaEntradas,relatorio:abaRelatorio,contas:abaContas,usuarios:abaUsuarios,acessos:abaAcessos,e19meu:()=>e19PagEstoque(false),e19sol:e19PagSolic,e19adm:abaE19Adm,adm:abaADM}[aba]();
   const ativo=document.activeElement&&document.activeElement.id==='busca';const pos=ativo?document.activeElement.selectionStart:0;
-  $('app').innerHTML=`<div class="topo"><div class="wrap"><div class="marca">${LOGO}<div>${perfil.papel==='e19'?'Estoque 19<small>Meu estoque · Solicitações de compra</small>':'Estoque<small>Notas · Entradas · Saídas · Contas a pagar</small>'}</div></div>
+  $('app').innerHTML=`<div class="topo"><div class="wrap"><div class="marca">${LOGO}<div>${perfil.papel==='e19'?'Estoque 19<small>Meu estoque · Solicitações de compra</small>':perfil.papel==='adm'?'ADM TudoMix<small>Notas · Despesas · Ponto · Fechamentos</small>':'Estoque<small>Notas · Entradas · Saídas · Contas a pagar</small>'}</div></div>
     <div class="quem"><span>${esc(perfil.nome||perfil.email)}</span><span class="badge b-pap">${PAPEIS[perfil.papel]}</span>
     <button class="small" data-act="atualizar">Atualizar</button><button class="small" data-act="sair">Sair</button></div></div></div>
     <div class="wrap"><nav class="abas">${abas.map(([k,l])=>`<button class="${aba===k?'on':''}" data-aba="${k}">${l}</button>`).join('')}</nav>${conteudo}</div>`;
@@ -496,7 +507,7 @@ function abaContas(){
 function abaUsuarios(){
   return `${E04.dono?'<div class="barra" style="margin-top:10px"><button class="primary" data-e19adm="acessos" data-aba="e19adm">Criar acesso ao Estoque 19</button></div>':''}<div class="total" style="margin-top:10px">Para dar acesso a alguém: peça para a pessoa abrir este site e tocar em <b>Criar conta</b>. Depois ela aparece aqui e você escolhe o acesso.</div>
   <div class="lista">${D.perfis.map(p=>`<div class="card"><div><div class="t">${esc(p.nome||'')}</div><div class="meta">${esc(p.email||'')}</div>${p.papel?'':'<div class="warn">Aguardando liberação</div>'}${p.papel==='cliente'?`<div class="meta" style="margin-top:6px">Contas que este cliente vê:</div><div class="ccs">${D.contas.map(c=>`<button class="${(p.contas||[]).includes(c.id)?'on':''}" data-cc="${p.user_id}|${c.id}">${esc(c.nome)}</button>`).join('')||'<span class="meta">Cadastre as contas primeiro.</span>'}</div>`:''}</div>
-    <div>${p.papel==='e19'?'<span class="badge b-pap">Estoque 19</span><div class="meta">gerenciado em 🏬 Estoque 19</div>':`<select data-papel="${p.user_id}" style="min-width:150px"><option value="">Sem acesso</option>${Object.entries(PAPEIS).filter(([k])=>k!=='e19').map(([k,l])=>`<option value="${k}" ${p.papel===k?'selected':''}>${l}</option>`).join('')}</select>`}</div></div>`).join('')}</div>
+    <div>${p.papel==='e19'?'<span class="badge b-pap">Estoque 19</span><div class="meta">gerenciado em 🏬 Estoque 19</div>':p.papel==='adm'?'<span class="badge b-pap">ADM TudoMix</span><div class="meta">gerenciado em 📋 ADM TudoMix › Acessos</div>':`<select data-papel="${p.user_id}" style="min-width:150px"><option value="">Sem acesso</option>${Object.entries(PAPEIS).filter(([k])=>k!=='e19'&&k!=='adm').map(([k,l])=>`<option value="${k}" ${p.papel===k?'selected':''}>${l}</option>`).join('')}</select>`}</div></div>`).join('')}</div>
   <div class="meta" style="margin-top:10px"><b>Administrador:</b> vê e faz tudo, inclusive custo, ajustes e contas. <b>Estoque:</b> lança entradas e saídas e anexa fotos e etiquetas, sem ver custo. <b>Sócio:</b> vê tudo, inclusive custo e contas a pagar, e não altera nada. <b>Cliente:</b> vê só os envios (saídas) das contas marcadas para ele, sem custo e sem o resto do estoque. <b>Estoque 04:</b> vê e opera só o Estoque 04 (entradas, despachos e solicitações), sem nenhuma outra aba, custo ou dado do sistema.</div>`;
 }
 let filtroAc='';
